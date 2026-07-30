@@ -32,8 +32,15 @@ include_directories(${OPENGL_INCLUDE_DIRS})
 find_package(LibUSB REQUIRED)
 include_directories(${LIBUSB_INCLUDE_DIR})
 
-# optional: system tray icon (StatusNotifierItem over sd-bus)
-pkg_check_modules(SYSTEMD libsystemd)
+# optional: system tray icon (StatusNotifierItem over sd-bus). basu is the
+# standalone sd-bus used on distributions that do not ship systemd.
+pkg_check_modules(SDBUS libsystemd)
+if (NOT SDBUS_FOUND)
+	pkg_check_modules(SDBUS basu)
+	if (SDBUS_FOUND)
+		set(SDBUS_IS_BASU TRUE)
+	endif()
+endif()
 
 # convert data into code
 include(CMake/bin2h.cmake)
@@ -63,8 +70,19 @@ add_executable(MixiD main.cpp imgui-knobs.cpp imgui-custom.cpp tray.c)
 # even flags, so linking a target that does not exist will not give a configure-time error.
 target_link_libraries(MixiD PRIVATE imgui glfw ${OPENGL_LIBRARIES} ${LIBUSB_LIBRARIES})
 
-if (SYSTEMD_FOUND)
+if (SDBUS_FOUND)
 	target_compile_definitions(MixiD PRIVATE HAVE_TRAY)
-	target_include_directories(MixiD PRIVATE ${SYSTEMD_INCLUDE_DIRS})
-	target_link_libraries(MixiD PRIVATE ${SYSTEMD_LIBRARIES})
+	if (SDBUS_IS_BASU)
+		target_compile_definitions(MixiD PRIVATE HAVE_BASU)
+	endif()
+	target_include_directories(MixiD PRIVATE ${SDBUS_INCLUDE_DIRS})
+	target_link_libraries(MixiD PRIVATE ${SDBUS_LIBRARIES})
+else()
+	message(STATUS "libsystemd/basu not found, building without tray support")
 endif()
+
+# Desktop entry and icon, so MixiD shows up in application menus
+include(GNUInstallDirs)
+install(TARGETS MixiD RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES Desktop/mixid.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+install(FILES Desktop/mixid.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)

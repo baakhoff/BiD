@@ -9,7 +9,11 @@
 #include "tray.h"
 
 #ifdef HAVE_TRAY
+#ifdef HAVE_BASU
+#include <basu/sd-bus.h>
+#else
 #include <systemd/sd-bus.h>
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
