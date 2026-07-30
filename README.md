@@ -42,6 +42,16 @@ Unlike the original, BiD talks to the interface over its spare DFU interface rat
 
 Optionally, `make install` also places a desktop entry and icon, so BiD can be started from your application menu.
 
+Installing under a prefix inside your home directory, rather than into `/usr`,
+can leave the icon missing from the menu and the task bar: an icon theme
+directory is only searched when it has an `index.theme`, and a fresh
+`~/.local/share/icons/hicolor` has none. If that happens:
+
+```
+cp /usr/share/icons/hicolor/index.theme ~/.local/share/icons/hicolor/
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+```
+
 ### System tray
 
 When the desktop provides a system tray, closing the window hides BiD there instead of quitting, so the interface stays connected and reachable.
