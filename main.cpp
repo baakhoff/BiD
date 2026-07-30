@@ -457,6 +457,11 @@ int main(int, char**)
 		// 3. Show another simple window.
 		if (show_another_window)
 		{
+			// A floor on the size, so the window is usable even when imgui.ini
+			// carries a size saved at a different display scale.
+			ImGui::SetNextWindowSizeConstraints(ImVec2(380 * main_scale, 130 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
+			ImGui::SetNextWindowSize(ImVec2(420 * main_scale, 140 * main_scale), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 			ImGui::Begin("Driver Select", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
 	        
 	        //const char* combo_preview_value = items[item_selected_idx];
@@ -483,6 +488,10 @@ int main(int, char**)
 		}
 		if (show_routing)
 		{
+			// Wide and tall enough for the angled headers and every channel row
+			ImGui::SetNextWindowSizeConstraints(ImVec2(440 * main_scale, 400 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
+			ImGui::SetNextWindowSize(ImVec2(480 * main_scale, 480 * main_scale), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 			ImGui::Begin("Routing", &show_routing);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
 			const char* column_names[] = { "","Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Mix"};
 			const int columns_count = IM_ARRAYSIZE(column_names);
@@ -495,11 +504,14 @@ int main(int, char**)
 			static int frozen_rows = 2;
 			static std::vector<int> row_selected = {0,0,0,0,0,0};
 
-			if (ImGui::BeginTable("table_angled_headers", columns_count, table_flags, ImVec2(0.0f, 30 * 12)))
+			if (ImGui::BeginTable("table_angled_headers", columns_count, table_flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
 			{
-				ImGui::TableSetupColumn(column_names[0], ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder);
+				// give the columns a width of their own: sized to the radio
+				// button alone they end up too narrow to comfortably hit
+				ImGui::TableSetupColumn(column_names[0], ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder,
+					ImGui::CalcTextSize("Channel 00").x + style.CellPadding.x * 2.0f);
 				for (int n = 1; n < columns_count; n++)
-					ImGui::TableSetupColumn(column_names[n], column_flags);
+					ImGui::TableSetupColumn(column_names[n], column_flags, ImGui::GetFrameHeight() * 2.0f);
 				ImGui::TableSetupScrollFreeze(frozen_cols, frozen_rows);
 
 				ImGui::TableAngledHeadersRow(); // Draw angled headers for all columns with the ImGuiTableColumnFlags_AngledHeader flag.
