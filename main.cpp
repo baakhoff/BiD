@@ -45,12 +45,53 @@ static void glfw_error_callback(int error, const char* description)
 	fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
+static GLFWwindow* window = nullptr;
+static const char* glsl_version = nullptr;
+static float main_scale = 1.0f;
+static bool want_hide = false;
+
 static void window_close_callback(GLFWwindow* win)
 {
+	// only flag it here, the window is torn down from the main loop:
+	// destroying a window inside its own callback is not safe
 	if (tray_active && !force_quit) {
 		glfwSetWindowShouldClose(win, GLFW_FALSE);
-		glfwHideWindow(win);
+		want_hide = true;
 	}
+}
+
+// Hiding is a full window teardown rather than glfwHideWindow(): on Wayland a
+// re-shown window does not reliably get a configured surface back, and the
+// first buffer swap then blocks forever waiting for a frame callback.
+static void window_open()
+{
+	if (window)
+		return;
+#ifdef GLFW_WAYLAND_APP_ID
+	glfwWindowHintString(GLFW_WAYLAND_APP_ID, "mixid");
+#endif
+#ifdef GLFW_X11_CLASS_NAME
+	glfwWindowHintString(GLFW_X11_CLASS_NAME, "mixid");
+	glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mixid");
+#endif
+	window = glfwCreateWindow((int)(1280 * main_scale), (int)(800 * main_scale), "MixiD - Open Source Audient mixer for Linux", nullptr, nullptr);
+	if (!window)
+		return;
+	glfwMakeContextCurrent(window);
+	glfwSwapInterval(1); // Enable vsync
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init(glsl_version);
+	glfwSetWindowCloseCallback(window, window_close_callback);
+}
+
+static void window_close()
+{
+	if (!window)
+		return;
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	glfwDestroyWindow(window);
+	window = nullptr;
 }
 
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
@@ -78,52 +119,35 @@ int main(int, char**)
 	// Decide GL+GLSL versions
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 	// GL ES 2.0 + GLSL 100 (WebGL 1.0)
-	const char* glsl_version = "#version 100";
+	glsl_version ="#version 100";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #elif defined(IMGUI_IMPL_OPENGL_ES3)
 	// GL ES 3.0 + GLSL 300 es (WebGL 2.0)
-	const char* glsl_version = "#version 300 es";
+	glsl_version ="#version 300 es";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #elif defined(__APPLE__)
 	// GL 3.2 + GLSL 150
-	const char* glsl_version = "#version 150";
+	glsl_version ="#version 150";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
 #else
 	// GL 3.0 + GLSL 130
-	const char* glsl_version = "#version 130";
+	glsl_version ="#version 130";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 	//glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
 	//glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 #endif
 
-	// Identify the window to the desktop so taskbars and launchers can match
-	// it to a mixid.desktop entry
-#ifdef GLFW_WAYLAND_APP_ID
-	glfwWindowHintString(GLFW_WAYLAND_APP_ID, "mixid");
-#endif
-#ifdef GLFW_X11_CLASS_NAME
-	glfwWindowHintString(GLFW_X11_CLASS_NAME, "mixid");
-	glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mixid");
-#endif
-
-	// Create window with graphics context
-	float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	GLFWwindow* window = glfwCreateWindow((int)(1280 * main_scale), (int)(800 * main_scale), "MixiD - Open Source Audient mixer for Linux", nullptr, nullptr);
-	if (window == nullptr)
-		return 1;
-
+	main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
 	int absX = 1280 * main_scale;
 	int absY = 800 * main_scale;
-	glfwMakeContextCurrent(window);
-	glfwSwapInterval(1); // Enable vsync
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -141,12 +165,14 @@ int main(int, char**)
 	style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
 	style.FontScaleDpi = main_scale;        // Set initial font scale. (using io.ConfigDpiScaleFonts=true makes this unnecessary. We leave both here for documentation purpose)
 
-	// Setup Platform/Renderer backends
-	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	// Setup Platform/Renderer backends (window and backends are torn down and
+	// rebuilt together whenever MixiD hides to the tray)
+	window_open();
+	if (window == nullptr)
+		return 1;
 #ifdef __EMSCRIPTEN__
 	ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
 #endif
-	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	// Load Fonts
 	style.FontSizeBase = 20.0f;
@@ -169,7 +195,6 @@ int main(int, char**)
 	//Tray icon: while one is available, closing the window hides MixiD
 	//instead of quitting (quit through Menu->Quit or the tray-less close)
 	tray_active = tray_init() != 0;
-	glfwSetWindowCloseCallback(window, window_close_callback);
 
 	//Init all the device properties
 	setup_devices();
@@ -187,17 +212,27 @@ int main(int, char**)
 	io.IniFilename = nullptr;
 	EMSCRIPTEN_MAINLOOP_BEGIN
 #else
-	while (!glfwWindowShouldClose(window))
+	while (!force_quit && (window == nullptr || !glfwWindowShouldClose(window)))
 #endif
 	{
 		glfwPollEvents();
 		if (tray_pump()) {
-			if (glfwGetWindowAttrib(window, GLFW_VISIBLE))
-				glfwHideWindow(window);
+			if (window)
+				want_hide = true;
 			else
-				glfwShowWindow(window);
+				window_open();
 		}
-		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0 || glfwGetWindowAttrib(window, GLFW_VISIBLE) == 0)
+		if (want_hide) {
+			want_hide = false;
+			window_close();
+		}
+		if (window == nullptr)
+		{
+			// hidden in the tray: no rendering, just keep the tray responsive
+			ImGui_ImplGlfw_Sleep(100);
+			continue;
+		}
+		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 		{
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
@@ -457,12 +492,10 @@ int main(int, char**)
 
 	tray_shutdown();
 	driver_shutdown(); //just in case disconnect
-	// Cleanup
-	ImGui_ImplOpenGL3_Shutdown();
-	ImGui_ImplGlfw_Shutdown();
+	// Cleanup (window_close() is a no-op when already hidden to the tray)
+	window_close();
 	ImGui::DestroyContext();
 
-	glfwDestroyWindow(window);
 	glfwTerminate();
 
 	return 0;
