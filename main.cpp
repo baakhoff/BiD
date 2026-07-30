@@ -592,8 +592,9 @@ int main(int, char**)
 				// Which mix the faders edit. The other two routing sources
 				// have nothing to mix: Alt is the main mix on the other
 				// speakers, DAW Thru bypasses the mixer at a fixed level.
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * main_scale, 8.0f * main_scale));
 				if (ImGui::BeginTabBar("mixtabs")) {
-					const char* mix_names[MIXER_BUSES] = { "Main Mix", "Cue A", "Cue B" };
+					const char* mix_names[MIXER_BUSES] = { "MAIN MIX", "CUE A", "CUE B" };
 					for (int m = 0; m < MIXER_BUSES; m++)
 						if (ImGui::BeginTabItem(mix_names[m], nullptr, m == want_mix_tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) { current_mix = m; ImGui::EndTabItem(); }
 					if (ImGui::TabItemButton("?", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {}
@@ -603,58 +604,33 @@ int main(int, char**)
 							"DAW Thru has no page: it bypasses the mixer at full level.");
 					ImGui::EndTabBar();
 				}
+				ImGui::PopStyleVar();
 				want_mix_tab = -1; // the state file's tab only needs forcing once
 				// keep one line free underneath for the version string
 				const float strip_h = ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing();
-				// a channel is: label, spacer, fader, spacer, phase button.
-				// The fader absorbs whatever height the rest leaves over.
-				const float fader_w = 42.0f * main_scale;
-				// Columns share the width evenly. A column can never be
-				// narrower than its label, or the labels would push the row
-				// wider than the child and force a scrollbar.
+				// strip anatomy, top to bottom: name, type-coloured chip, phase pill,
+				// fader with its meter, pan pot, pan caption. The fader takes whatever
+				// height the rest leaves over.
+				const float fader_w = 46.0f * main_scale;
 				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
-				const float label_w = ImGui::CalcTextSize((std::string("Digi ")
-						+ std::to_string(devices[driver_indicator].digital_inputs)).c_str()).x;
+				const float label_w = ImGui::CalcTextSize("DIGI 00").x;
 				float chan_w = ImMax(fader_w, label_w);
 				if (chan_count > 0)
 					chan_w = ImClamp((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * (chan_count - 1)) / chan_count,
-						ImMax(fader_w, label_w), ImMax(96.0f * main_scale, label_w));
-				const float pad_top = 24.0f * main_scale;
-				const float pad_bottom = 32.0f * main_scale;
-				const float phase_h = 40.0f * main_scale;
-				const float pan_h = ImGui::GetFrameHeight();
-				// Both strip children leave room for the scrollbar only the
-				// scrolling one shows, so the pinned faders stay level with
-				// the rest.
-				const float fader_h = ImMax(strip_h
-						- (ImGui::GetTextLineHeightWithSpacing() + pad_top + pad_bottom + phase_h + pan_h
-						   + style.ItemSpacing.y * 5.0f + style.ScrollbarSize),
-					80.0f * main_scale);
+						ImMax(fader_w, label_w) + 10.0f * main_scale, ImMax(96.0f * main_scale, label_w));
+				const float pill_w = 26.0f * main_scale, pill_h = 22.0f * main_scale;
+				const float knob_d = 34.0f * main_scale;
+				const float head_fix = 52.0f * main_scale;
+				const float below_fix = knob_d + 24.0f * main_scale;
+				const float meter_w = 8.0f * main_scale;
+				const float meter_gap = 4.0f * main_scale;
+				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 6.0f + style.ScrollbarSize + 8.0f * main_scale),
+					90.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
-				// Pan is the ratio between a channel's two sends on the mix
-				// being edited, which is exactly how the matrix places it.
-				auto pan_slider = [&](int idx, const std::string& id) {
-					char fmt[16];
-					float p = pan_value[current_mix][idx];
-					if (p < 0.499f)      snprintf(fmt, sizeof(fmt), "L%.0f", (0.5f - p) * 200.0f);
-					else if (p > 0.501f) snprintf(fmt, sizeof(fmt), "R%.0f", (p - 0.5f) * 200.0f);
-					else                 snprintf(fmt, sizeof(fmt), "C");
-					center_in_column(fader_w);
-					ImGui::SetNextItemWidth(fader_w);
-					if (ImGui::SliderFloat(("##pan" + id).c_str(), &pan_value[current_mix][idx], 0.0f, 1.0f, fmt)) {
-						if (connected)
-							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
-					}
-				};
-				// The strip cards and the meter ladders are drawn by hand:
-				// the card sits behind a whole strip, the meter beside the
-				// fader, lit from the last GET_MEM block and animated here -
-				// rising instantly, falling at a rate, with a slow peak line.
-				const ImU32 card_col = ImGui::GetColorU32(ImVec4(0.105f, 0.115f, 0.135f, 1.0f));
-				const float card_h = strip_h - style.ScrollbarSize - 2.0f;
-				const float meter_w = 7.0f * main_scale;
-				const float meter_gap = 3.0f * main_scale;
+				// The meter ladder is drawn by hand beside the fader, lit from the
+				// last GET_MEM block and animated here - rising instantly, falling
+				// at a readable rate, with a slow peak-hold line.
 				auto draw_meter = [&](ImVec2 p, float w, float h, int ch) {
 					ImDrawList* dl = ImGui::GetWindowDrawList();
 					float dt = ImGui::GetIO().DeltaTime;
@@ -665,42 +641,74 @@ int main(int, char**)
 					float &peak = meter_peak[ch];
 					disp = target > disp ? target : ImMax(0.0f, disp - dt * 1.8f);
 					peak = disp > peak ? disp : ImMax(0.0f, peak - dt * 0.35f);
-					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(11, 12, 15, 255), 3.0f * main_scale);
-					int segs = (int)(h / (5.0f * main_scale));
+					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(9, 10, 13, 255), 2.5f * main_scale);
+					int segs = (int)(h / (7.0f * main_scale));
 					if (segs < 8) segs = 8;
 					float seg_h = h / segs;
 					int lit = (int)(disp * segs + 0.5f);
-					for (int s = 0; s < segs; s++) {
-						float frac = (s + 1.0f) / segs;
-						bool on = s < lit;
+					for (int sg = 0; sg < segs; sg++) {
+						float frac = (sg + 1.0f) / segs;
+						bool on = sg < lit;
 						ImU32 col;
-						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(58, 27, 25, 255);
-						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(56, 44, 24, 255);
-						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(26, 39, 30, 255);
-						dl->AddRectFilled(ImVec2(p.x + 1.5f, p.y + h - (s + 1) * seg_h + 1.0f),
-							ImVec2(p.x + w - 1.5f, p.y + h - s * seg_h - 1.0f), col, 1.0f);
+						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(52, 25, 23, 255);
+						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(50, 40, 22, 255);
+						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(23, 34, 27, 255);
+						dl->AddRectFilled(ImVec2(p.x + 1.5f, p.y + h - (sg + 1) * seg_h + 1.5f),
+							ImVec2(p.x + w - 1.5f, p.y + h - sg * seg_h - 1.0f), col, 1.5f);
 					}
 					if (peak > 0.02f) {
 						float py = p.y + h - peak * h;
 						dl->AddLine(ImVec2(p.x + 1.0f, py), ImVec2(p.x + w - 1.0f, py), IM_COL32(255, 255, 255, 150), 1.0f * main_scale);
 					}
 				};
-				// one whole strip: label, fader, pan, phase. idx is the
-				// matrix input the strip drives, wid keeps widget ids apart.
-				// A partner channel, when given, follows the fader so a
-				// linked stereo pair moves as one.
-				float link_row_y = 0.0f;
-				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first, int partner = -1, bool card = true) {
-					if (card) {
-						ImVec2 tl = ImGui::GetCursorScreenPos();
-						ImGui::GetWindowDrawList()->AddRectFilled(tl, ImVec2(tl.x + chan_w, tl.y + card_h),
-							card_col, style.ChildRounding);
+				// The pan is a pot, like the consoles this mirrors; double click
+				// recentres it. The caption under it says where it points.
+				auto pan_knob = [&](int idx, const std::string& wid) {
+					char fmt[16];
+					float pv = pan_value[current_mix][idx];
+					if (pv < 0.499f)      snprintf(fmt, sizeof(fmt), "L%.0f", (0.5f - pv) * 200.0f);
+					else if (pv > 0.501f) snprintf(fmt, sizeof(fmt), "R%.0f", (pv - 0.5f) * 200.0f);
+					else                 snprintf(fmt, sizeof(fmt), "C");
+					center_in_column(knob_d);
+					bool moved = ImGuiKnobs::Knob(("##pan" + wid).c_str(), &pan_value[current_mix][idx], 0.0f, 1.0f, 0.004f, "",
+						ImGuiKnobVariant_Dot, knob_d, ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput);
+					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+						pan_value[current_mix][idx] = 0.5f;
+						moved = true;
 					}
+					if (moved && connected)
+						set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+					ImGui::PushFont(font, 13.0f);
+					center_in_column(ImGui::CalcTextSize(fmt).x);
+					ImGui::TextDisabled("%s", fmt);
+					ImGui::PopFont();
+				};
+				// one whole strip. idx is the matrix input it drives, chip the type
+				// colour under the name, wid keeps widget ids apart. A partner
+				// channel, when given, follows the fader so a linked pair moves as
+				// one; the divider is the hairline between neighbours.
+				float link_row_y = 0.0f;
+				auto draw_strip = [&](int idx, const std::string& label, ImU32 chip, const std::string& wid, int partner = -1, bool divider = true) {
+					ImVec2 tl = ImGui::GetCursorScreenPos();
 					ImGui::BeginGroup();
-					if (first)
-						ImGui::SetCursorPosY(3 * main_scale);
-					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
-					ImGui::Dummy(ImVec2(chan_w,pad_top));
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					ImGui::PushFont(font, 15.0f);
+					center_in_column(ImGui::CalcTextSize(label.c_str()).x);
+					ImGui::TextUnformatted(label.c_str());
+					ImGui::PopFont();
+					{
+						ImDrawList* dl = ImGui::GetWindowDrawList();
+						float uw = 22.0f * main_scale;
+						ImVec2 up = ImGui::GetCursorScreenPos();
+						dl->AddRectFilled(ImVec2(up.x + (chan_w - uw) * 0.5f, up.y + 1.0f * main_scale),
+							ImVec2(up.x + (chan_w + uw) * 0.5f, up.y + 4.0f * main_scale), chip, 2.0f);
+					}
+					ImGui::Dummy(ImVec2(chan_w, 6.0f * main_scale));
+					center_in_column(pill_w);
+					ImGui::PushFont(audiofont, 17);
+					if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
+					ImGui::PopFont();
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f);
 					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
@@ -717,33 +725,38 @@ int main(int, char**)
 						ImGui::Dummy(ImVec2(meter_w, fader_h));
 						draw_meter(mp, meter_w, fader_h, idx);
 					}
-					pan_slider(idx, wid);
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					pan_knob(idx, wid);
 					link_row_y = ImGui::GetCursorPosY();
-					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
-					ImGui::PushFont(audiofont, 32);
-					if (toggleButton("###Phase"+wid, ImVec2(fader_w, phase_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
-					ImGui::PopFont();
 					ImGui::EndGroup();
+					if (divider) {
+						ImDrawList* dl = ImGui::GetWindowDrawList();
+						float dx = tl.x + chan_w + style.ItemSpacing.x * 0.5f;
+						dl->AddLine(ImVec2(dx, tl.y + 8.0f * main_scale), ImVec2(dx, tl.y + strip_h - style.ScrollbarSize - 12.0f * main_scale),
+							ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.05f)), 1.0f);
+					}
 				};
 
 				const device_properties &dev = devices[driver_indicator];
-				// The DAW return pair that feeds outputs 1 and 2 lives at the
-				// far end of the digital inputs, but on screen it belongs
-				// first: it gets its own child on the left, pinned, so it
-				// stays put while the input strips scroll past next to it.
+				// type colours: mics amber, digital slate, the DAW return pair mint
+				const ImU32 chip_mic  = IM_COL32(255, 163, 41, 235);
+				const ImU32 chip_digi = IM_COL32(122, 150, 202, 220);
+				const ImU32 chip_out  = IM_COL32(77, 208, 165, 235);
+				// The DAW return pair that feeds outputs 1 and 2 lives at the far end
+				// of the digital inputs, but on screen it belongs first: pinned in its
+				// own slightly lifted panel, with the link bar under it, while the
+				// input strips scroll past next to it.
 				const int mon_idx = dev.monitor_pair >= 0 ? dev.mic_inputs + dev.monitor_pair : -1;
 				if (mon_idx >= 0) {
-					// the pair shares one panel, which is what says "these
-					// two belong together" before the link button does
-					ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.105f, 0.115f, 0.135f, 1.0f));
-					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h - style.ScrollbarSize));
-					draw_strip(mon_idx,     "L Out", "OutL", true,  out_link[0] ? mon_idx + 1 : -1, false);
+					ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.125f, 0.135f, 0.158f, 1.00f));
+					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h));
+					draw_strip(mon_idx,     "OUT L", chip_out, "OutL", out_link[0] ? mon_idx + 1 : -1, false);
 					ImGui::SameLine();
-					draw_strip(mon_idx + 1, "R Out", "OutR", false, out_link[0] ? mon_idx : -1, false);
-					// the resting band under the pan sliders carries the link
-					// toggle: lit, the two faders move as one
-					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x * 0.75f, link_row_y + style.ItemSpacing.y * 0.5f));
-					if (toggleButton("Link", ImVec2(chan_w * 2.0f - style.ItemSpacing.x * 0.5f, pad_bottom - style.ItemSpacing.y), out_link[0])) {
+					draw_strip(mon_idx + 1, "OUT R", chip_out, "OutR", out_link[0] ? mon_idx : -1, false);
+					float link_h = ImMax(16.0f * main_scale, strip_h - link_row_y - 8.0f * main_scale);
+					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x, link_row_y + 3.0f * main_scale));
+					ImGui::PushFont(font, 14.0f);
+					if (toggleButton("LINK", ImVec2(chan_w * 2.0f - style.ItemSpacing.x, link_h), out_link[0])) {
 						if (out_link[0]) {
 							// relinking snaps the right side back onto the left
 							bar_value[current_mix][mon_idx + 1] = bar_value[current_mix][mon_idx];
@@ -751,26 +764,28 @@ int main(int, char**)
 								set_channel_send(mon_idx + 1, current_mix, bar_value[current_mix][mon_idx + 1], pan_value[current_mix][mon_idx + 1]);
 						}
 					}
+					ImGui::PopFont();
 					ImGui::EndChild();
 					ImGui::PopStyleColor();
 					ImGui::SameLine();
 				}
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.105f, 0.115f, 0.135f, 1.00f));
 				ImGui::BeginChild("Faders", ImVec2(0, strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
 				bool first = true;
 				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
 					if (!first) ImGui::SameLine();
-					draw_strip(i, std::string("Mic ")+std::to_string(i+1), "Mic"+std::to_string(i), first);
+					draw_strip(i, "MIC " + std::to_string(i + 1), chip_mic, "Mic" + std::to_string(i));
 					first = false;
 				}
 				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
 					if (dev.monitor_pair >= 0 && ((int)i == dev.monitor_pair || (int)i == dev.monitor_pair + 1))
-						continue; // pinned on the left as L Out / R Out
+						continue; // pinned on the left as OUT L / OUT R
 					if (!first) ImGui::SameLine();
-					draw_strip(dev.mic_inputs + i, std::string("Digi ")+std::to_string(i+1), "Digi"+std::to_string(i), first);
+					draw_strip(dev.mic_inputs + i, "DIGI " + std::to_string(i + 1), chip_digi, "Digi" + std::to_string(i));
 					first = false;
 				}
-
 				ImGui::EndChild();
+				ImGui::PopStyleColor();
 			}
 			ImGui::TextDisabled(VERSION_BID);
 			//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
@@ -779,23 +794,33 @@ int main(int, char**)
 			ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + mixer_w, viewport->Pos.y));
 			ImGui::SetNextWindowSize(ImVec2(panel_w, absY));
 			ImGui::Begin("Monitor", nullptr, ImGuiWindowFlags_NoDecoration);
-			ImGui::SeparatorText("Connection");
-			
-			TextCentered((std::string("Selected Driver: ") + devices[driver_indicator].name).c_str());
-			if (connected) {
-				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0,1.0,0.0,0.8));
-				TextCentered("Connected");
+			// ---- master section: device, connection, knobs, monitor grid ----
+			ImGui::Dummy(ImVec2(0, 2.0f * main_scale));
+			ImGui::PushFont(font, 26.0f);
+			TextCentered(devices[driver_indicator].name.c_str());
+			ImGui::PopFont();
+			{
+				const char* st = connected ? "online" : "offline";
+				ImGui::PushFont(font, 14.0f);
+				float w = ImGui::CalcTextSize(st).x + 12.0f * main_scale;
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - w) * 0.5f);
+				ImVec2 dp = ImGui::GetCursorScreenPos();
+				ImGui::GetWindowDrawList()->AddCircleFilled(
+					ImVec2(dp.x + 3.5f * main_scale, dp.y + ImGui::GetTextLineHeight() * 0.55f), 3.5f * main_scale,
+					connected ? IM_COL32(96, 222, 132, 255) : IM_COL32(122, 128, 142, 255));
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f * main_scale);
+				ImGui::TextDisabled("%s", st);
+				ImGui::PopFont();
 			}
-			else {
-				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0,0.0,0.0,0.8));
-				TextCentered("Disconnected");
-			} ImGui::PopStyleColor();
-
-			std::string name = "Connect";
-			if (connected)
-				name = "Disconnect";
-			
-			if (ImGui::Button(name.c_str(),ImVec2(ImGui::GetContentRegionAvail().x, 40 * main_scale))) {
+			ImGui::Dummy(ImVec2(0, 4.0f * main_scale));
+			const bool call_to_action = !connected;
+			if (call_to_action) {
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.00f, 0.74f, 0.32f, 1.00f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.00f, 0.80f, 0.45f, 1.00f));
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.11f, 0.09f, 0.06f, 1.00f));
+			}
+			if (ImGui::Button(connected ? "Disconnect" : "Connect", ImVec2(ImGui::GetContentRegionAvail().x, 34.0f * main_scale))) {
 				connected = !connected;
 				if (connected) {
 					if (!driver_init(devices[driver_indicator].usb_id)) {
@@ -814,7 +839,9 @@ int main(int, char**)
 				else
 					driver_shutdown();
 			};
-		   // Always center this window when appearing
+			if (call_to_action)
+				ImGui::PopStyleColor(4);
+			// Always center this window when appearing
 			ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 			ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
@@ -824,46 +851,58 @@ int main(int, char**)
 				ImGui::Text("Make sure you have selected the correct driver and your usb permissions are correct.");
 				ImGui::Text("This can either be done by adding the usb device to the udev rules,");
 				ImGui::Text("or running BiD with sudo permissions.");
-				ImGui::Dummy(ImVec2(10,20 * main_scale));
+				ImGui::Dummy(ImVec2(10, 20 * main_scale));
 				ImGui::Separator();
 				if (ImGui::Button("OK", ImVec2(120 * main_scale, 0))) { ImGui::CloseCurrentPopup(); }
 				ImGui::SetItemDefaultFocus();
 				ImGui::EndPopup();
 			}
 
-			ImGui::SeparatorText("Monitor");
-
-			// the knobs sit centred in whatever width the panel has, and the
-			// toggles are anchored to the bottom of it
-			const float knob_w = ImGui::GetTextLineHeight() * 4.0f;
-			const float btn_h = 40.0f * main_scale;
+			// knobs: the monitor level is the hero, phones under it, and the
+			// toggle grid stays anchored to the bottom of the panel
+			auto caps_label = [&](const char* cs, float pt) {
+				ImGui::PushFont(font, pt);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(cs).x) * 0.5f);
+				ImGui::TextDisabled("%s", cs);
+				ImGui::PopFont();
+			};
+			const float btn_h = 42.0f * main_scale;
 			const float toggles_h = btn_h * 2.0f + style.ItemSpacing.y;
-			const float knob_gap = ImMax((absY - ImGui::GetCursorPosY() - toggles_h
-					- style.WindowPadding.y - knob_w * 2.0f - ImGui::GetTextLineHeightWithSpacing() * 4.0f) / 3.0f,
-				style.ItemSpacing.y);
-
-			ImGui::Dummy(ImVec2(0,knob_gap));
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_w) * 0.5f);
-			if (ImGuiKnobs::Knob("Main LR", &levels[0], 0.0f, 1.0f, 0.01f, "%.2f", ImGuiKnobVariant_Wiper)) {if (connected) set_speaker_volume(levels[0]);}
-			ImGui::Dummy(ImVec2(0,knob_gap));
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_w) * 0.5f);
-			if (ImGuiKnobs::Knob("Phones", &levels[1], 0.0f, 1.0f, 0.01f, "%.2f", ImGuiKnobVariant_Wiper)) {if (connected) set_hp_volume(levels[1]);}
+			const float knob_big = 104.0f * main_scale;
+			const float knob_small = 72.0f * main_scale;
+			float knob_gap = ImMax((absY - ImGui::GetCursorPosY() - toggles_h - style.WindowPadding.y
+					- knob_big - knob_small - ImGui::GetTextLineHeightWithSpacing() * 4.0f) / 4.0f,
+				4.0f * main_scale);
+			ImGui::Dummy(ImVec2(0, knob_gap));
+			caps_label("MONITOR", 15.0f);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_big) * 0.5f);
+			if (ImGuiKnobs::Knob("##monitor", &levels[0], 0.0f, 1.0f, 0.004f, "", ImGuiKnobVariant_WiperOnly, knob_big,
+					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
+				if (connected) set_speaker_volume(levels[0]);
+			}
+			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[0] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
+			ImGui::Dummy(ImVec2(0, knob_gap));
+			caps_label("PHONES", 15.0f);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_small) * 0.5f);
+			if (ImGuiKnobs::Knob("##phones", &levels[1], 0.0f, 1.0f, 0.004f, "", ImGuiKnobVariant_WiperOnly, knob_small,
+					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
+				if (connected) set_hp_volume(levels[1]);
+			}
+			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[1] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
 
 			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
 			const float btn_w = (ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * 2.0f) / 3.0f;
 			ImGui::BeginGroup();
-			if (toggleButton("Dim", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
+			if (toggleButton("DIM", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
 			ImGui::SameLine();
-			if (toggleButton("Alt", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
+			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
 			ImGui::SameLine();
-			if (toggleButton("Talk", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
-			ImGui::BeginGroup();
-			if (toggleButton("Phase", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
-			ImGui::EndGroup();
+			if (toggleButton("TALK", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
+			if (toggleButton("PHASE", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
 			ImGui::SameLine();
-			if (toggleButton("Mono", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
+			if (toggleButton("MONO", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
 			ImGui::SameLine();
-			if (toggleButton("Cut", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
+			if (toggleButton("CUT", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
 			ImGui::EndGroup();
 
 

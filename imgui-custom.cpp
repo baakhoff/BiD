@@ -36,13 +36,7 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
         g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Up) | (1 << ImGuiDir_Down);
     }
 
-    // Draw frame
-    //const ImU32 frame_col = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-    float contrast = 0.1;
-    const ImU32 frame_col = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : g.HoveredId == id ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg, 1.0f + contrast);
-    const ImU32 frame_col_after = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : g.HoveredId == id ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg, 1.0f - contrast);
     RenderNavCursor(frame_bb, id);
-    //RenderFrame(frame_bb.Min, frame_bb.Max, frame_col, true, g.Style.FrameRounding);
 
     // Slider behavior
     ImRect grab_bb;
@@ -50,29 +44,34 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     if (value_changed)
         MarkItemEdited(id);
 
-    float thickness = 0.4;
-    ImRect draw_bb = frame_bb;
-    if (thickness != 1.0f)
+    // A console fader: a narrow inset slot down the middle with tick marks,
+    // a soft accent fill below the cap, and a wide cap with a centre line.
+    ImDrawList* dl = window->DrawList;
+    const bool live = (g.ActiveId == id);
+    const float cx = (frame_bb.Min.x + frame_bb.Max.x) * 0.5f;
+    const float slot_w = ImMax(5.0f, (frame_bb.Max.x - frame_bb.Min.x) * 0.15f);
+    const ImRect slot(ImVec2(cx - slot_w * 0.5f, frame_bb.Min.y + 3.0f), ImVec2(cx + slot_w * 0.5f, frame_bb.Max.y - 3.0f));
+    const ImU32 tick_col = GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.09f));
+    for (int t = 0; t <= 4; t++)
     {
-        float shrink_amount = (float)(int)((frame_bb.Max.x - frame_bb.Min.x) * 0.5f * (1.0f - thickness));
-        draw_bb.Min.x += shrink_amount;
-        draw_bb.Max.x -= shrink_amount;
+        float ty = slot.Min.y + (slot.Max.y - slot.Min.y) * (t / 4.0f);
+        dl->AddLine(ImVec2(frame_bb.Min.x + 3.0f, ty), ImVec2(frame_bb.Max.x - 3.0f, ty), tick_col, 1.0f);
     }
-
-    // Render track
-    window->DrawList->AddRectFilled(ImVec2(draw_bb.Min.x, grab_bb.Max.y - (grab_bb.Max.y - grab_bb.Min.y) * 0.65f), draw_bb.Max, frame_col, style.FrameRounding, ImDrawFlags_RoundCornersBottom);
-    window->DrawList->AddRectFilled(draw_bb.Min, ImVec2(draw_bb.Max.x, grab_bb.Min.y + (grab_bb.Max.y - grab_bb.Min.y) * 0.35f), frame_col_after, style.FrameRounding, ImDrawFlags_RoundCornersTop);
-
-    // Render grab
-    ImRect modgrab_bb = grab_bb;
-    modgrab_bb.Min.y -= 20;
-    modgrab_bb.Max.y += 20;
-    grab_bb.Min.y += 4;
-    grab_bb.Max.y -= 4;
-    if (grab_bb.Max.y > grab_bb.Min.y) {
-        window->DrawList->AddRectFilled(modgrab_bb.Min, modgrab_bb.Max, GetColorU32(ImVec4(0,0,0.1,255)), style.GrabRounding);
-        window->DrawList->AddRectFilled(grab_bb.Min, grab_bb.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
-    }
+    dl->AddRectFilled(slot.Min, slot.Max, GetColorU32(ImVec4(0.040f, 0.045f, 0.055f, 1.0f)), slot_w * 0.5f);
+    dl->AddRect(slot.Min, slot.Max, GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.55f)), slot_w * 0.5f);
+    const float cap_c = (grab_bb.Min.y + grab_bb.Max.y) * 0.5f;
+    if (slot.Max.y - cap_c > 3.0f)
+        dl->AddRectFilled(ImVec2(slot.Min.x + 1.0f, cap_c), ImVec2(slot.Max.x - 1.0f, slot.Max.y - 1.0f),
+            GetColorU32(ImGuiCol_SliderGrab, live ? 0.60f : 0.40f), slot_w * 0.4f);
+    const float cap_h = 20.0f;
+    ImRect cap(ImVec2(frame_bb.Min.x + 1.0f, cap_c - cap_h * 0.5f), ImVec2(frame_bb.Max.x - 1.0f, cap_c + cap_h * 0.5f));
+    ImU32 cap_top = GetColorU32(live ? ImVec4(0.31f, 0.33f, 0.39f, 1.0f) : ImVec4(0.25f, 0.27f, 0.32f, 1.0f));
+    ImU32 cap_bot = GetColorU32(live ? ImVec4(0.17f, 0.18f, 0.22f, 1.0f) : ImVec4(0.14f, 0.15f, 0.18f, 1.0f));
+    dl->AddRectFilled(cap.Min, cap.Max, GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.55f)), g.Style.GrabRounding);
+    dl->AddRectFilledMultiColor(ImVec2(cap.Min.x + 1.0f, cap.Min.y + 1.0f), ImVec2(cap.Max.x - 1.0f, cap.Max.y - 1.0f),
+        cap_top, cap_top, cap_bot, cap_bot);
+    dl->AddLine(ImVec2(cap.Min.x + 3.0f, cap_c), ImVec2(cap.Max.x - 3.0f, cap_c),
+        GetColorU32(live ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), 2.0f);
 
     // Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
     // For the vertical slider we allow centered text to overlap the frame padding

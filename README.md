@@ -130,6 +130,12 @@ All done!
    * A new look: charcoal console theme with one warm amber accent running
      through faders, knobs, tabs and lit buttons; card-style strips; the
      output pair boxed as one panel
+   * The surface rebuilt the way console software lays it out. Strips read
+     top to bottom: name, type-coloured chip, phase pill, a real fader — slot,
+     cap and tick marks — with its meter, then a pan pot that double-clicks
+     back to centre. The master panel leads with the device name and a status
+     dot, then the monitor knob as the hero, phones under it, and the
+     uppercase toggle grid at the bottom
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
