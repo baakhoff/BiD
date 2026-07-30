@@ -303,13 +303,18 @@ int main(int, char**)
 					for (size_t i = 0; i < devices[driver_indicator].mic_inputs+devices[driver_indicator].digital_inputs; i++) {
 						bar_value.push_back(0.0f);
 						phase_value.push_back(false);
-						// Mics are mono sources and sit in the middle. The
-						// digital inputs arrive as stereo pairs, so they start
-						// panned apart, which is what keeps a pair's image
-						// intact instead of summing it to the centre.
-						bool digital = i >= (size_t)devices[driver_indicator].mic_inputs;
-						size_t d = i - devices[driver_indicator].mic_inputs;
-						pan_value.push_back(digital ? ((d % 2) ? 1.0f : 0.0f) : 0.5f);
+						// Everything starts centred except the digital pair
+						// that feeds the monitor outputs, which is the one
+						// place we know is stereo: panning it apart is what
+						// keeps its image instead of summing it to the middle.
+						const device_properties &dev = devices[driver_indicator];
+						int d = (int)i - dev.mic_inputs;
+						float pan = 0.5f;
+						if (dev.monitor_pair >= 0 && d == dev.monitor_pair)
+							pan = 0.0f;
+						else if (dev.monitor_pair >= 0 && d == dev.monitor_pair + 1)
+							pan = 1.0f;
+						pan_value.push_back(pan);
 					}
 				}
 				// keep one line free underneath for the version string
@@ -375,7 +380,12 @@ int main(int, char**)
 				}
 				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
 					ImGui::BeginGroup();
-					const std::string label = std::string("Digi ")+std::to_string(i+1); center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
+					std::string label = std::string("Digi ")+std::to_string(i+1);
+					if (devices[driver_indicator].monitor_pair >= 0) {
+						if ((int)i == devices[driver_indicator].monitor_pair)          label = "Mon L";
+						else if ((int)i == devices[driver_indicator].monitor_pair + 1) label = "Mon R";
+					}
+					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
 					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)

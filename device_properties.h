@@ -12,6 +12,11 @@ struct device_properties {
 	int outputs;
 	int digital_outputs;
 	int inserts = 0;
+	// Index, among the digital inputs, of the left half of the pair that feeds
+	// the monitor outputs. That pair is the one place we know is stereo, so it
+	// is the only one panned apart by default. -1 when we do not know, in
+	// which case every digital input starts centred.
+	int monitor_pair = -1;
 };
 
 static std::vector<device_properties> devices;
@@ -72,6 +77,9 @@ void setup_devices()
 	iD24.outputs = 4;
 	iD24.digital_outputs = 14;
 	iD24.inserts = 2;
+	// verified on hardware: digital inputs 9 and 10 are the pair that comes
+	// out of outputs 1 and 2, so they are the monitor left and right
+	iD24.monitor_pair = 8;
 	devices.push_back(iD24);
 
 	struct device_properties iD44;
