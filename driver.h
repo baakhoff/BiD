@@ -75,8 +75,8 @@ int find_control_interface(libusb_device *dev)
 // the iD24 and selected wrong or undefined sources on it, which showed up as
 // outputs stuck at full level that no fader could touch.
 enum route_source {
-  ROUTE_MAIN  = 0, // the main mix, under the monitor section and its knob
-  ROUTE_ALT   = 1, // the main mix on the alternate speakers, for the Alt switch
+  ROUTE_MAIN  = 0, // the monitor section's feed: knob, dim and cut ride along
+  ROUTE_ALT   = 1, // the same feed on the alternate speakers, for the Alt switch
   ROUTE_CUE_A = 2,
   ROUTE_CUE_B = 3,
   ROUTE_DAW   = 4, // straight from the computer at full level, no knob at all

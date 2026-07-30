@@ -110,10 +110,12 @@ void TextCentered(const char* text) {
 // What each output pair listens to, in route_source order: outputs 1+2,
 // outputs 3+4, phones. The hardware keeps its routing across power cycles
 // and never answers reads, so whatever was last written anywhere stays in
-// force until connect pushes this. Out of the box the first pair carries the
-// main mix, the second the alternate speakers, and the phones the main mix.
-static const int route_default[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_MAIN };
-static int route_state[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_MAIN };
+// force until connect pushes this. The first pair carries the main mix, the
+// second the alternate speakers, and the phones cue A: the main feed is the
+// monitor section's, so dim and cut would land in the headphones too, while
+// on a cue the phones answer only to their own dial.
+static const int route_default[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A };
+static int route_state[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A };
 
 static void reset_routing()
 {
@@ -650,10 +652,12 @@ int main(int, char**)
 			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones" };
 			const char* source_names[] = { "Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Thru" };
 			ImGui::TextWrapped(
-				"Each output pair plays one source. Main Mix follows the volume knob and the "
-				"monitor buttons. Alt Spkr is the main mix for a second set of speakers, switched "
-				"in with the Alt button. DAW Thru comes straight from the computer at full level - "
-				"the knob does not touch it.");
+				"Each output pair plays one source. Main Mix is the monitor section's feed: the "
+				"volume knob, Dim and Cut apply on any output carrying it, phones included. "
+				"Alt Spkr is that same feed for a second set of speakers, switched in with Alt. "
+				"The cues are separate mixes, clear of the monitor section - the phones sit on "
+				"Cue A so the speaker buttons leave them alone and the Phones dial sets their "
+				"level. DAW Thru comes straight from the computer at full level - no control at all.");
 			ImGui::Spacing();
 
 			if (ImGui::BeginTable("routing", 1 + ROUTE_SOURCES, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))

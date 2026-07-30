@@ -104,6 +104,9 @@ All done!
    * The faders edit any of the hardware's three mixes — Main, Cue A, Cue B —
      switched with tabs above the strips. Each mix keeps its own levels and
      pans, all pushed on connect
+   * Phones default to Cue A. The main-mix source turned out to be the monitor
+     section's own feed, so Dim and Cut used to land in the headphones as well;
+     on a cue the phones answer only to the Phones dial
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

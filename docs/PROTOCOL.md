@@ -58,12 +58,19 @@ output index. Outputs 0..5 are the analog side — 1/2 main, 3/4 line, then the
 phones — and 8..11 the digital one. The byte picks what that output plays:
 
     main mix   0x25 left half of the pair, 0x26 right
-    alt        0x1e / 0x1f    the main mix for the alternate speakers
+    alt        0x1e / 0x1f    the same feed for the alternate speakers
     cue A      0x20 / 0x21
     cue B      0x22 / 0x23
     DAW n      the output's own index: a fixed full-level feed straight from
                the computer, outside the monitor section, so the volume knob
                does not apply to it
+
+`0x25/0x26` is not a raw tap of the main mix bus: it is the monitor
+section's output, so the volume knob, dim and cut ride along on every output
+that carries it — verified on hardware by routing the phones there and
+watching dim and cut land in the headphones. The cue feeds bypass the
+monitor section entirely, which is why BiD parks the phones on cue A: they
+then answer only to the headphone volume on feature unit 0x0c.
 
 These are the iD24's codes, decoded by Monix from the official app. The table
 BiD carried before 0.2.1 predated this device and wrote different codes, which
