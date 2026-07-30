@@ -425,7 +425,7 @@ int main(int, char**)
 					ImGui::EndTabBar();
 				}
 				// keep one line free underneath for the version string
-				ImGui::BeginChild("Faders", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()), 0, ImGuiWindowFlags_HorizontalScrollbar);
+				const float strip_h = ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing();
 				// a channel is: label, spacer, fader, spacer, phase button.
 				// The fader absorbs whatever height the rest leaves over.
 				const float fader_w = 42.0f * main_scale;
@@ -443,9 +443,12 @@ int main(int, char**)
 				const float pad_bottom = 32.0f * main_scale;
 				const float phase_h = 40.0f * main_scale;
 				const float pan_h = ImGui::GetFrameHeight();
-				const float fader_h = ImMax(ImGui::GetContentRegionAvail().y
+				// Both strip children leave room for the scrollbar only the
+				// scrolling one shows, so the pinned faders stay level with
+				// the rest.
+				const float fader_h = ImMax(strip_h
 						- (ImGui::GetTextLineHeightWithSpacing() + pad_top + pad_bottom + phase_h + pan_h
-						   + style.ItemSpacing.y * 5.0f),
+						   + style.ItemSpacing.y * 5.0f + style.ScrollbarSize),
 					80.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
@@ -464,49 +467,53 @@ int main(int, char**)
 							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
 					}
 				};
-				int inputcounter = 0;
-				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
+				// one whole strip: label, fader, pan, phase. idx is the
+				// matrix input the strip drives, wid keeps widget ids apart.
+				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first) {
 					ImGui::BeginGroup();
-					if (i == 0)
+					if (first)
 						ImGui::SetCursorPosY(3 * main_scale);
-					const std::string label = std::string("Mic ")+std::to_string(i+1); center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
-					ImGui::Dummy(ImVec2(chan_w,pad_top));
-					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][inputcounter], 0.0f, 1.0f, "%.2f")) {
-						if (connected)
-							set_channel_send(inputcounter, current_mix, bar_value[current_mix][inputcounter], pan_value[current_mix][inputcounter]);
-					};
-					pan_slider(inputcounter, "Mic"+std::to_string(i));
-					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
-					ImGui::PushFont(audiofont, 32);
-					//if (toggleButton("Dim", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);}};
-					if (toggleButton("###MicPhase"+std::to_string(i), ImVec2(fader_w, phase_h), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
-					inputcounter++;
-					ImGui::PopFont();
-					ImGui::EndGroup();
-					ImGui::SameLine();
-				}
-				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
-					ImGui::BeginGroup();
-					std::string label = std::string("Digi ")+std::to_string(i+1);
-					if (devices[driver_indicator].monitor_pair >= 0) {
-						if ((int)i == devices[driver_indicator].monitor_pair)          label = "Mon L";
-						else if ((int)i == devices[driver_indicator].monitor_pair + 1) label = "Mon R";
-					}
 					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
-					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][inputcounter], 0.0f, 1.0f, "%.2f")) {
+					center_in_column(fader_w); if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
-							set_channel_send(inputcounter, current_mix, bar_value[current_mix][inputcounter], pan_value[current_mix][inputcounter]);
+							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
 					};
-					pan_slider(inputcounter, "Digi"+std::to_string(i));
+					pan_slider(idx, wid);
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
-					if (toggleButton("###DigiPhase"+std::to_string(i), ImVec2(fader_w, phase_h), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
-					inputcounter++;
+					if (toggleButton("###Phase"+wid, ImVec2(fader_w, phase_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
 					ImGui::PopFont();
 					ImGui::EndGroup();
-					if (i < (devices[driver_indicator].digital_inputs)-1)
-						ImGui::SameLine();
+				};
+
+				const device_properties &dev = devices[driver_indicator];
+				// The DAW return pair that feeds outputs 1 and 2 lives at the
+				// far end of the digital inputs, but on screen it belongs
+				// first: it gets its own child on the left, pinned, so it
+				// stays put while the input strips scroll past next to it.
+				const int mon_idx = dev.monitor_pair >= 0 ? dev.mic_inputs + dev.monitor_pair : -1;
+				if (mon_idx >= 0) {
+					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h));
+					draw_strip(mon_idx,     "L Out", "OutL", true);
+					ImGui::SameLine();
+					draw_strip(mon_idx + 1, "R Out", "OutR", false);
+					ImGui::EndChild();
+					ImGui::SameLine();
+				}
+				ImGui::BeginChild("Faders", ImVec2(0, strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
+				bool first = true;
+				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
+					if (!first) ImGui::SameLine();
+					draw_strip(i, std::string("Mic ")+std::to_string(i+1), "Mic"+std::to_string(i), first);
+					first = false;
+				}
+				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
+					if (dev.monitor_pair >= 0 && ((int)i == dev.monitor_pair || (int)i == dev.monitor_pair + 1))
+						continue; // pinned on the left as L Out / R Out
+					if (!first) ImGui::SameLine();
+					draw_strip(dev.mic_inputs + i, std::string("Digi ")+std::to_string(i+1), "Digi"+std::to_string(i), first);
+					first = false;
 				}
 
 				ImGui::EndChild();
