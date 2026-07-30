@@ -31,7 +31,7 @@ while BiD is connected. See `find_control_interface()` in `driver.h`.
 | `0x0b` | input gain / pad | `0x0b` |
 | `0x0a` | declares no controls at all, writes to it do nothing | — |
 | `0x0c` | output volumes | `0x02`, channels 1 and 2 are the monitor pair, 3 and 4 the headphones |
-| `0x33` | output routing | `0x06`, channel = output, data is a 1 byte source code |
+| `0x33` | output routing | `0x06`, channel = output index, 1 byte source code — see below |
 | `0x36` | monitor volume | `0x12` (single value, there is no per-side control) |
 | `0x36` | monitor toggles | mono `0x00`, phase `0x03`, mute `0x04`, dim `0x05`, talkback `0x07`, alt `0x0c` |
 | `0x3c` | mixer matrix | `0x01`, channel = cell number |
@@ -50,6 +50,27 @@ So an input's position in the stereo image is the ratio between its two Main
 sends; there is no separate pan control. Writing one level to both sends —
 which BiD did before 0.2.0 — sums every input to the centre and destroys the
 image of anything arriving as a stereo pair.
+
+## Output routing
+
+Entity `0x33`, selector `0x06`, one byte of data; the wValue channel is the
+output index. Outputs 0..5 are the analog side — 1/2 main, 3/4 line, then the
+phones — and 8..11 the digital one. The byte picks what that output plays:
+
+    main mix   0x25 left half of the pair, 0x26 right
+    alt        0x1e / 0x1f    the main mix for the alternate speakers
+    cue A      0x20 / 0x21
+    cue B      0x22 / 0x23
+    DAW n      the output's own index: a fixed full-level feed straight from
+               the computer, outside the monitor section, so the volume knob
+               does not apply to it
+
+These are the iD24's codes, decoded by Monix from the official app. The table
+BiD carried before 0.2.1 predated this device and wrote different codes, which
+selected wrong or undefined sources — the visible symptom is an output stuck
+at full level that no fader controls. Routing survives power cycles and the
+entity cannot be read, so BiD pushes its routing state on connect along with
+everything else.
 
 ## Volume encoding
 

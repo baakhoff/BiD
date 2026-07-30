@@ -104,6 +104,20 @@ void TextCentered(const char* text) {
 	ImGui::TextUnformatted(text);
 }
 
+// What each output pair listens to, in route_source order: outputs 1+2,
+// outputs 3+4, phones. The hardware keeps its routing across power cycles
+// and never answers reads, so whatever was last written anywhere stays in
+// force until connect pushes this. Out of the box the first pair carries the
+// main mix, the second the alternate speakers, and the phones the main mix.
+static const int route_default[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_MAIN };
+static int route_state[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_MAIN };
+
+static void reset_routing()
+{
+	for (int p = 0; p < 3; p++)
+		route_state[p] = route_default[p];
+}
+
 // Whether this device answers reads on the monitor entity. Probed once on
 // connect, so a device that stalls is asked exactly once instead of being
 // polled forever.
@@ -137,6 +151,8 @@ static void push_state_to_device()
 		set_phase(i, phase_value[i]);
 	}
 	set_hp_volume(levels[1]);
+	for (int p = 0; p < 3; p++)
+		set_route_pair(p, route_state[p]);
 }
 
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
@@ -248,6 +264,7 @@ int main(int, char**)
 	    bar_value.clear();
 	    pan_value.clear();
 	    phase_value.clear();
+	    reset_routing();
 	}
 
 	// Main loop
@@ -579,6 +596,7 @@ int main(int, char**)
 	                    bar_value.clear();
 	                    pan_value.clear();
 	                    phase_value.clear();
+	                    reset_routing();
 	                }
 
 	                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
@@ -594,55 +612,62 @@ int main(int, char**)
 		}
 		if (show_routing)
 		{
-			// Wide and tall enough for the angled headers and every channel row
-			ImGui::SetNextWindowSizeConstraints(ImVec2(440 * main_scale, 400 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
-			ImGui::SetNextWindowSize(ImVec2(480 * main_scale, 480 * main_scale), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSizeConstraints(ImVec2(460 * main_scale, 250 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
+			ImGui::SetNextWindowSize(ImVec2(500 * main_scale, 310 * main_scale), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-			ImGui::Begin("Routing", &show_routing);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-			const char* column_names[] = { "","Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Mix"};
-			const int columns_count = IM_ARRAYSIZE(column_names);
-			const int rows_count = 6;
-			static bool bools[columns_count * rows_count] = {}; // Dummy storage selection storage
+			ImGui::Begin("Routing", &show_routing);
+			// One source per physical output pair, matching how the official
+			// app treats routing. The rows are the routing outputs in device
+			// order: 0/1, 2/3, then the phones on 4/5.
+			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones" };
+			const char* source_names[] = { "Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Thru" };
+			ImGui::TextWrapped(
+				"Each output pair plays one source. Main Mix follows the volume knob and the "
+				"monitor buttons. Alt Spkr is the main mix for a second set of speakers, switched "
+				"in with the Alt button. DAW Thru comes straight from the computer at full level - "
+				"the knob does not touch it.");
+			ImGui::Spacing();
 
-			static ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Hideable | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_HighlightHoveredColumn;
-			static ImGuiTableColumnFlags column_flags = ImGuiTableColumnFlags_AngledHeader | ImGuiTableColumnFlags_WidthFixed;
-			static int frozen_cols = 1;
-			static int frozen_rows = 2;
-			static std::vector<int> row_selected = {0,0,0,0,0,0};
-
-			if (ImGui::BeginTable("table_angled_headers", columns_count, table_flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+			if (ImGui::BeginTable("routing", 1 + ROUTE_SOURCES, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
 			{
-				// give the columns a width of their own: sized to the radio
-				// button alone they end up too narrow to comfortably hit
-				ImGui::TableSetupColumn(column_names[0], ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder,
-					ImGui::CalcTextSize("Channel 00").x + style.CellPadding.x * 2.0f);
-				for (int n = 1; n < columns_count; n++)
-					ImGui::TableSetupColumn(column_names[n], column_flags, ImGui::GetFrameHeight() * 2.0f);
-				ImGui::TableSetupScrollFreeze(frozen_cols, frozen_rows);
-
-				ImGui::TableAngledHeadersRow(); // Draw angled headers for all columns with the ImGuiTableColumnFlags_AngledHeader flag.
-				ImGui::TableHeadersRow();       // Draw remaining headers and allow access to context-menu and other functions.
-				for (int row = 0; row < rows_count; row++)
+				ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+					ImGui::CalcTextSize("Out 0+0").x + style.CellPadding.x * 2.0f);
+				for (int s = 0; s < ROUTE_SOURCES; s++)
+					ImGui::TableSetupColumn(source_names[s], ImGuiTableColumnFlags_WidthFixed,
+						ImGui::CalcTextSize(source_names[s]).x + style.CellPadding.x * 2.0f);
+				ImGui::TableHeadersRow();
+				for (int pair = 0; pair < 3; pair++)
 				{
-					ImGui::PushID(row);
+					ImGui::PushID(pair);
 					ImGui::TableNextRow();
 					ImGui::TableSetColumnIndex(0);
 					ImGui::AlignTextToFramePadding();
-					ImGui::Text("Channel %d", row+1);
-					for (int column = 1; column < columns_count; column++)
-						if (ImGui::TableSetColumnIndex(column))
+					ImGui::TextUnformatted(pair_names[pair]);
+					for (int s = 0; s < ROUTE_SOURCES; s++)
+						if (ImGui::TableSetColumnIndex(s + 1))
 						{
-							ImGui::PushID(column);
-							if (ImGui::RadioButton("", &row_selected[row], column)) {
-								std::cout << row << "\n";
+							ImGui::PushID(s);
+							// centre the radio under its header
+							float avail = ImGui::GetContentRegionAvail().x;
+							float rw = ImGui::GetFrameHeight();
+							if (avail > rw)
+								ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - rw) * 0.5f);
+							if (ImGui::RadioButton("", &route_state[pair], s)) {
 								if (connected)
-									set_routing_value(row,column-1);
+									set_route_pair(pair, s);
 							};
 							ImGui::PopID();
 						}
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
+			}
+			ImGui::Spacing();
+			if (ImGui::Button("Reset to defaults")) {
+				reset_routing();
+				if (connected)
+					for (int p = 0; p < 3; p++)
+						set_route_pair(p, route_state[p]);
 			}
 			ImGui::End();
 		}

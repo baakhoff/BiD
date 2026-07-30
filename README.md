@@ -92,6 +92,15 @@ All done!
 
 ### BiD
 
+* 0.2.1
+   * Routing rewritten with the iD24's real source codes (decoded by
+     [Monix](https://github.com/sKuhLight/monix) from the official app). The
+     old table predated this device and could leave outputs stuck at full
+     level on a source no fader controls
+   * The routing window now works per output pair, starts from sane defaults,
+     explains what the sources mean, and can reset to defaults
+   * Routing is pushed to the device on connect like the rest of the state,
+     which also recovers a device left mis-routed by older builds
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

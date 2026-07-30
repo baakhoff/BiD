@@ -70,28 +70,31 @@ int find_control_interface(libusb_device *dev)
 }
 
 
-//--------
-// First is for Left channels, Second for Right
-// Order, Main Mix, Alt Speaker, Cue A, Cue B, DAW Mix
-// Left is First,x - Right is x,Second
-// --------
-// 
-// Channel 1: {0x1b,x},{0x1d,x},{0x19,x},{0x1a,x},{0x00,x}
-// Channel 2: {x,0x1c},{x,0x1e},{x,0x19},{x,0x1a},{x,0x01}
-// Channel 3: {0x1b, x},{0x1d, x},{0x19, x},{0x1a, x},{0x02, x}
-// Channel 4: {x, 0x1c},{x, 0x1e},{x, 0x19},{x,0x1a},{x,0x03}
-// Channel 3: {0x1b, x},{0x1d, x},{0x19, x},{0x1a, x},{0x04, x}
-// Channel 4: {x, 0x1c},{x, 0x1e},{x, 0x19},{x,0x1a},{x,0x05}
-
-inline std::vector<std::vector<uint8_t>> routeToggle 
-{
-  {0x1b,0x1d,0x19,0x1a,0x00}, //Channel 1 (Main L)
-  {0x1c,0x1e,0x19,0x1a,0x01}, //Channel 2 (Main R)
-  {0x1b,0x1d,0x19,0x1a,0x02}, //Channel 3
-  {0x1c,0x1e,0x19,0x1a,0x03}, //Channel 4
-  {0x1b,0x1d,0x19,0x1a,0x04}, //Channel 5 (HP L)
-  {0x1c,0x1e,0x19,0x1a,0x05}  //Channel 6 (HP R)
+// What an output can listen to. The codes written for these are the iD24's,
+// decoded by Monix from the official app; the table this replaces predated
+// the iD24 and selected wrong or undefined sources on it, which showed up as
+// outputs stuck at full level that no fader could touch.
+enum route_source {
+  ROUTE_MAIN  = 0, // the main mix, under the monitor section and its knob
+  ROUTE_ALT   = 1, // the main mix on the alternate speakers, for the Alt switch
+  ROUTE_CUE_A = 2,
+  ROUTE_CUE_B = 3,
+  ROUTE_DAW   = 4, // straight from the computer at full level, no knob at all
 };
+#define ROUTE_SOURCES 5
+
+inline uint8_t route_code(int out, int source)
+{
+  int side = out & 1; // left or right half of the output's stereo pair
+  switch (source) {
+    case ROUTE_MAIN:  return 0x25 + side;
+    case ROUTE_ALT:   return 0x1e + side;
+    case ROUTE_CUE_A: return 0x20 + side;
+    case ROUTE_CUE_B: return 0x22 + side;
+    case ROUTE_DAW:   return out; // output n plays DAW channel n
+  }
+  return 0x25 + side;
+}
 
 uint16_t float_to_u16(float volume) {
   uint16_t res = -32768+32767*volume;
@@ -171,18 +174,24 @@ void set_channel_volume(uint16_t chan, float volume, float pan)
 }
 
 
-//TODO: eventually need ranges set in pre-defined device specific structs
-inline std::vector<uint16_t> chanVals {0x0600,0x0601,0x0602,0x0603,0x0604,0x0605};
-
-void set_routing_value(int chan, int position) 
+// Routing lives on entity 0x33, selector 0x06; the wValue channel is the
+// output index. 0..5 are the analog outputs (1/2, 3/4, phones), 8..11 the
+// digital ones, which nothing here touches yet.
+void set_route(int out, int source)
 {
-  int err = 0;
-
-  err = libusb_control_transfer(devh, 0x21, 0x1, chanVals[chan], 0x3300 | control_iface, (uint8_t*)&routeToggle[chan][position], 1, 0);
-
+  uint8_t code = route_code(out, source);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
   }
+}
+
+// Both halves of a stereo pair listen to the same source; pair 0 is outputs
+// 1 and 2, pair 2 the phones.
+void set_route_pair(int pair, int source)
+{
+  set_route(pair * 2, source);
+  set_route(pair * 2 + 1, source);
 }
 
 //TODO: eventually need ranges set in pre-defined device specific structs
