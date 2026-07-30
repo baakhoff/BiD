@@ -50,6 +50,7 @@ static GLFWwindow* window = nullptr;
 static const char* glsl_version = nullptr;
 static float main_scale = 1.0f;
 static bool want_hide = false;
+static double last_poll = 0.0;
 
 static void window_close_callback(GLFWwindow* win)
 {
@@ -101,6 +102,28 @@ void TextCentered(const char* text) {
 	if (width < avail)
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - width) * 0.5f);
 	ImGui::TextUnformatted(text);
+}
+
+// Whether this device answers reads on the monitor entity. Probed once on
+// connect, so a device that stalls is asked exactly once instead of being
+// polled forever.
+static bool hw_readback = false;
+
+// Take the front panel's word for the monitor section: those controls exist on
+// the device itself and can be changed without the application ever knowing.
+static void sync_state_from_device()
+{
+	for (int i = 0; i < 5; i++) {
+		bool on;
+		if (get_bool_state(i, &on) && on != (bool)master_bools[i]) {
+			master_bools[i] = on;
+			masterToggle[i] = on;
+			tray_set_master(i, on);
+		}
+	}
+	float v;
+	if (get_monitor_volume(&v))
+		levels[0] = v;
 }
 
 // Nothing in the matrix or the output feature unit can be read back, so on
@@ -254,6 +277,26 @@ int main(int, char**)
 			if (connected)
 				set_bool_state(idx);
 			tray_set_master(idx, master_bools[idx]);
+		}
+		// One control per tick, round robin: the front panel is picked up
+		// within about a second without flooding the device.
+		if (connected && hw_readback && glfwGetTime() - last_poll > 0.15 && !ImGui::IsAnyItemActive()) {
+			last_poll = glfwGetTime();
+			static int poll_idx = 0;
+			if (poll_idx < 5) {
+				bool on;
+				if (get_bool_state(poll_idx, &on) && on != (bool)master_bools[poll_idx]) {
+					master_bools[poll_idx] = on;
+					masterToggle[poll_idx] = on;
+					tray_set_master(poll_idx, on);
+				}
+			}
+			else {
+				float v;
+				if (get_monitor_volume(&v) && (v > levels[0] + 0.004f || v < levels[0] - 0.004f))
+					levels[0] = v;
+			}
+			poll_idx = (poll_idx + 1) % 6;
 		}
 		if (want_hide) {
 			want_hide = false;
@@ -452,6 +495,10 @@ int main(int, char**)
 						ImGui::OpenPopup("No connection possible");
 					}
 					else {
+						float probe;
+						hw_readback = get_monitor_volume(&probe) != 0;
+						if (hw_readback)
+							sync_state_from_device();
 						push_state_to_device();
 					}
 				}

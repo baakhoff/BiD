@@ -211,6 +211,30 @@ void set_bool_state(int mode)
 
 // one per matrix input: the iD44 and iD48 show more channels than the ten
 // this used to hold, and the fader loop indexes it by channel
+// Entity 0x36 is the one part of this device that answers reads, so it is the
+// only way to notice the front panel being used. The matrix and the feature
+// units either stall or alias, see docs/PROTOCOL.md.
+int get_bool_state(int mode, bool *out)
+{
+  unsigned char b = 0;
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 200);
+  if (r != 1)
+    return 0;
+  *out = b != 0;
+  return 1;
+}
+
+int get_monitor_volume(float *out)
+{
+  unsigned char b[2] = {0, 0};
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 200);
+  if (r != 2)
+    return 0;
+  float v = ((int16_t)(b[0] | (b[1] << 8)) + 32768) / 32767.0f;
+  *out = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+  return 1;
+}
+
 inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed
