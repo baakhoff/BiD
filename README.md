@@ -122,6 +122,8 @@ All done!
      which had the phones' left ear ignoring every fader on Cue A
    * Matrix rows without a fader (the iD24's DAW returns 3..6) are silenced
      on connect, so the hardware's boot-time cue contents cannot bleed in
+   * The Cut button joined the monitor row and the tray menu, synced with
+     the front panel like the rest
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
