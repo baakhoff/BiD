@@ -7,6 +7,7 @@
 
 static libusb_device_handle *devh = NULL;
 static bool driver_connected = false;
+static int control_iface = 0;
 
 int device_probe()
 {
@@ -46,6 +47,28 @@ int device_probe()
   return foundid;
 }
 
+// The iD firmware accepts the mixer control requests on any of its interfaces,
+// not just the AudioControl one (see issue #15). Sending them to the spare
+// DFU/vendor interface means snd-usb-audio keeps the audio interfaces and
+// playback continues while MixiD is connected. Returns -1 if the device has
+// no such interface.
+int find_control_interface(libusb_device *dev)
+{
+  struct libusb_config_descriptor *config;
+  if (libusb_get_active_config_descriptor(dev, &config) != LIBUSB_SUCCESS)
+    return -1;
+  int found = -1;
+  for (int i = 0; i < config->bNumInterfaces; i++) {
+    const struct libusb_interface_descriptor *alt = &config->interface[i].altsetting[0];
+    if (alt->bInterfaceClass == LIBUSB_CLASS_APPLICATION || alt->bInterfaceClass == LIBUSB_CLASS_VENDOR_SPEC) {
+      found = alt->bInterfaceNumber;
+      break;
+    }
+  }
+  libusb_free_config_descriptor(config);
+  return found;
+}
+
 
 //--------
 // First is for Left channels, Second for Right
@@ -79,13 +102,12 @@ void set_vinyl_dm(float volume) {
   uint16_t one = float_to_u16(volume);
   uint16_t zero = float_to_u16(0);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100, 0x3c00, (uint8_t*)&one, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0101, 0x3c00, (uint8_t*)&zero, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00, (uint8_t*)&zero, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00, (uint8_t*)&one, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100, 0x3c00 | control_iface, (uint8_t*)&one, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0101, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00 | control_iface, (uint8_t*)&one, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
 }
 
@@ -93,11 +115,10 @@ void set_hp_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0a00, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0a00, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0a00 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0a00 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
 }
 
@@ -105,10 +126,9 @@ void set_speaker_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
 }
 
@@ -116,11 +136,10 @@ void set_channel_volume(uint16_t chan, float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6), 0x3c00, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6)+1, 0x3c00, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6), 0x3c00 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6)+1, 0x3c00 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
 }
 
@@ -132,11 +151,10 @@ void set_routing_value(int chan, int position)
 {
   int err = 0;
 
-  err = libusb_control_transfer(devh, 0x21, 0x1, chanVals[chan], 0x3300, (uint8_t*)&routeToggle[chan][position], 1, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, chanVals[chan], 0x3300 | control_iface, (uint8_t*)&routeToggle[chan][position], 1, 0);
 
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
 }
 
@@ -156,11 +174,10 @@ void set_bool_state(int mode)
 {
   int err = 0;
   masterToggle[mode] = !masterToggle[mode];
-  err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600, (uint8_t*)&masterToggle[mode], 1, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600 | control_iface, (uint8_t*)&masterToggle[mode], 1, 0);
 
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
   //return masterToggle[mode];
 }
@@ -171,11 +188,10 @@ void set_phase_state(int chan) //0 indexed
 {
   int err = 0;
   phaseToggle[chan] = !phaseToggle[chan];
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00, (uint8_t*)&phaseToggle[chan], 1, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 0);
 
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
-    exit(1);
   }
   //return masterToggle[mode];
 }
@@ -196,30 +212,47 @@ int driver_init(uint16_t deviceid)
     return false;
   }
   assert(devh != NULL);
-  err = libusb_set_auto_detach_kernel_driver(devh, 1);
-  if (err < 0) {
-    printf("libusb_set_auto_detach_kernel_driver failed: %s\n", libusb_error_name(err));
-    driver_connected = false;
-    return 1;
+
+  // Talk to the device through its spare DFU/vendor interface, so the kernel
+  // audio driver keeps the AudioControl/Streaming interfaces and playback
+  // keeps running while MixiD is connected. Devices without a spare
+  // interface fall back to the old exclusive grab of interface 0.
+  control_iface = find_control_interface(libusb_get_device(devh));
+  if (control_iface < 0) {
+    printf("no spare control interface found, grabbing interface 0 (audio pauses while connected)\n");
+    control_iface = 0;
+    err = libusb_set_auto_detach_kernel_driver(devh, 1);
+    if (err < 0) {
+      printf("libusb_set_auto_detach_kernel_driver failed: %s\n", libusb_error_name(err));
+      driver_connected = false;
+      return false;
+    }
   }
-  err = libusb_claim_interface(devh, 0);
+  err = libusb_claim_interface(devh, control_iface);
   if (err < 0) {
     printf("libusb_claim_interface failed: %s\n", libusb_error_name(err));
     driver_connected = false;
-    return 1;
+    return false;
   }
   driver_connected = true;
   return driver_connected;
 }
 
-void driver_shutdown() 
+void driver_shutdown()
 {
   driver_connected = false;
   if (!devh)
     return;
-  libusb_reset_device(devh);
-  libusb_release_interface(devh, 0);
-  libusb_attach_kernel_driver(devh,0);
+  if (control_iface == 0) {
+    // exclusive mode kicked the kernel driver off interface 0, hand it back
+    libusb_reset_device(devh);
+    libusb_release_interface(devh, 0);
+    libusb_attach_kernel_driver(devh,0);
+  }
+  else {
+    libusb_release_interface(devh, control_iface);
+  }
   libusb_close(devh);
   libusb_exit(NULL);
+  devh = NULL;
 }
