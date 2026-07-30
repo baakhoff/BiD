@@ -419,7 +419,15 @@ bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference va
 		ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); mastercol++;
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.1,0.1,0.1,1.0)); mastercol++;
 	}
-	if (ImGui::Button(name.c_str(), size)) {state = true; value.flip();};
+	// The visible half is drawn by hand, centred on its ink: this face's
+	// metrics sit letters low, so the stock centring reads as misplaced in
+	// small buttons. The part after ### stays the id, exactly as before.
+	size_t sep = name.find("###");
+	std::string vis = sep == std::string::npos ? name : name.substr(0, sep);
+	std::string bid = sep == std::string::npos ? "###" + name : name.substr(sep);
+	if (ImGui::Button(bid.c_str(), size)) {state = true; value.flip();};
+	if (!vis.empty())
+		ImGui::InkCenteredLabel(vis.c_str(), ImGui::GetColorU32(ImGuiCol_Text));
 	
 	if (mastercol > 0)
 		ImGui::PopStyleColor(mastercol);

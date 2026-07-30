@@ -84,6 +84,44 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     return value_changed;
 }
 
+// Centre a label over the last item by the pixels it actually inks, not
+// its advance box. This face's letters ride low in their line box and the
+// icon font's ride high, so stock box-centring reads as misplaced in small
+// buttons; ink-centring is what "centred" means to the eye.
+void InkCenteredLabel(const char* text, unsigned int col)
+{
+    ImFont* f = GetFont();
+    const float fsize = GetFontSize();
+    ImFontBaked* baked = f->GetFontBaked(fsize);
+    ImVec2 mn = GetItemRectMin(), mx = GetItemRectMax();
+    float pen = 0.0f, x0 = 0.0f, x1 = 0.0f, y0 = 1e9f, y1 = -1e9f;
+    bool any = false;
+    for (const char* p = text; *p; ) {
+        unsigned int ch = 0;
+        p += ImTextCharFromUtf8(&ch, p, NULL);
+        const ImFontGlyph* g = baked ? baked->FindGlyph((ImWchar)ch) : NULL;
+        if (!g) continue;
+        if (g->X1 > g->X0) {
+            if (!any) x0 = pen + g->X0;
+            any = true;
+            x1 = pen + g->X1;
+            y0 = ImMin(y0, g->Y0);
+            y1 = ImMax(y1, g->Y1);
+        }
+        pen += g->AdvanceX;
+    }
+    ImVec2 pos;
+    if (any)
+        pos = ImVec2((mn.x + mx.x) * 0.5f - (x0 + x1) * 0.5f, (mn.y + mx.y) * 0.5f - (y0 + y1) * 0.5f);
+    else {
+        ImVec2 ts = CalcTextSize(text);
+        pos = ImVec2((mn.x + mx.x) * 0.5f - ts.x * 0.5f, (mn.y + mx.y) * 0.5f - ts.y * 0.5f);
+    }
+    pos.x = (float)(int)(pos.x + 0.5f);
+    pos.y = (float)(int)(pos.y + 0.5f);
+    GetWindowDrawList()->AddText(f, fsize, pos, col, text);
+}
+
 bool VFaderFloat(const char* label, const ImVec2& size, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags)
 {
     return VFaderScalar(label, size, ImGuiDataType_Float, v, &v_min, &v_max, format, flags);
@@ -129,7 +167,7 @@ void StyleColorsBiD(ImGuiStyle* dst)
     style->PopupBorderSize   = 1.0f;
     style->WindowTitleAlign  = ImVec2(0.50f, 0.50f);
     style->SeparatorTextBorderSize = 2.0f;
-    style->ButtonTextAlign      = ImVec2(0.50f, 0.55f);
+    style->ButtonTextAlign      = ImVec2(0.50f, 0.50f);
 
     colors[ImGuiCol_Text]                   = text;
     colors[ImGuiCol_TextDisabled]           = text_dim;
