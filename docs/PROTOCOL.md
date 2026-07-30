@@ -29,7 +29,8 @@ while BiD is connected. See `find_control_interface()` in `driver.h`.
 |--------|------|----------|
 | `0x0b` | input phase invert | `0x0d`, channel 1..n |
 | `0x0b` | input gain / pad | `0x0b` |
-| `0x0c` | headphone volume | `0x02`, channels 1 and 2 |
+| `0x0a` | declares no controls at all, writes to it do nothing | — |
+| `0x0c` | output volumes | `0x02`, channels 1 and 2 are the monitor pair, 3 and 4 the headphones |
 | `0x33` | output routing | `0x06`, channel = output, data is a 1 byte source code |
 | `0x36` | monitor volume | `0x12` (single value, there is no per-side control) |
 | `0x36` | monitor toggles | mono `0x00`, phase `0x03`, mute `0x04`, dim `0x05`, talkback `0x07`, alt `0x0c` |

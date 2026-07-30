@@ -115,9 +115,11 @@ void set_hp_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  // headphones live on entity 0x0c selector 0x02, both channels
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0201, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0202, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
+  // Feature unit 0x0c carries four output channels: 1 and 2 are the monitor
+  // pair, 3 and 4 the headphones. Entity 0x0a, which this used to address,
+  // declares no controls at all, so those writes went nowhere.
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
   }
