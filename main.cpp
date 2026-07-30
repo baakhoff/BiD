@@ -94,6 +94,14 @@ static void window_close()
 	window = nullptr;
 }
 
+void TextCentered(const char* text) {
+	float avail = ImGui::GetContentRegionAvail().x;
+	float width = ImGui::CalcTextSize(text).x;
+	if (width < avail)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - width) * 0.5f);
+	ImGui::TextUnformatted(text);
+}
+
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
 	int mastercol = 0;
 	bool state = false;
@@ -146,8 +154,6 @@ int main(int, char**)
 #endif
 
 	main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	int absX = 1280 * main_scale;
-	int absY = 800 * main_scale;
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -260,10 +266,17 @@ int main(int, char**)
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f); stylecount++;
 
 		{
-			static float f = 0.0f;
-			static int counter = 0;
-			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-			ImGui::SetNextWindowSize(ImVec2(absX*0.8,absY));
+			// Everything is laid out against the viewport rather than the size
+			// the window happened to start at, so it reflows when resized.
+			const ImGuiViewport* viewport = ImGui::GetMainViewport();
+			const float absX = viewport->Size.x;
+			const float absY = viewport->Size.y;
+			// the monitor panel stays usable instead of scaling without bound
+			const float panel_w = ImClamp(absX * 0.2f, 240.0f * main_scale, 420.0f * main_scale);
+			const float mixer_w = absX - panel_w;
+
+			ImGui::SetNextWindowPos(viewport->Pos);
+			ImGui::SetNextWindowSize(ImVec2(mixer_w, absY));
 			ImGui::Begin("MixiD - Open Source Audient mixer for Linux", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBringToFrontOnFocus);
 			if (ImGui::BeginMenuBar())
 			{
@@ -289,25 +302,45 @@ int main(int, char**)
 						phase_value.push_back(false);
 					}
 				}
-				ImGui::SetNextWindowPos(ImVec2(absX*0.1,absY*0.1));
-				ImGui::SetNextWindowSize(ImVec2(absX*0.6, absY*0.8));
-				ImGui::BeginChild("Faders", ImVec2(0,0),0,ImGuiWindowFlags_HorizontalScrollbar);
-				ImVec2 ogpos = ImGui::GetCursorPos();
+				// keep one line free underneath for the version string
+				ImGui::BeginChild("Faders", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()), 0, ImGuiWindowFlags_HorizontalScrollbar);
+				// a channel is: label, spacer, fader, spacer, phase button.
+				// The fader absorbs whatever height the rest leaves over.
+				const float fader_w = 42.0f * main_scale;
+				// Columns share the width evenly. A column can never be
+				// narrower than its label, or the labels would push the row
+				// wider than the child and force a scrollbar.
+				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
+				const float label_w = ImGui::CalcTextSize((std::string("Digi ")
+						+ std::to_string(devices[driver_indicator].digital_inputs)).c_str()).x;
+				float chan_w = ImMax(fader_w, label_w);
+				if (chan_count > 0)
+					chan_w = ImClamp((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * (chan_count - 1)) / chan_count,
+						ImMax(fader_w, label_w), ImMax(96.0f * main_scale, label_w));
+				const float pad_top = 24.0f * main_scale;
+				const float pad_bottom = 32.0f * main_scale;
+				const float phase_h = 40.0f * main_scale;
+				const float fader_h = ImMax(ImGui::GetContentRegionAvail().y
+						- (ImGui::GetTextLineHeightWithSpacing() + pad_top + pad_bottom + phase_h
+						   + style.ItemSpacing.y * 4.0f),
+					80.0f * main_scale);
+				// centre an item of the given width inside the current column
+				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
 				int inputcounter = 0;
 				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
 					ImGui::BeginGroup();
 					if (i == 0)
-						ImGui::SetCursorPosY(3);
-					ImGui::Text("%s",(std::string("Mic ")+std::to_string(i+1)).c_str());
-					ImGui::Dummy(ImVec2(0,24));
-					if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(42, absY/1.8), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
+						ImGui::SetCursorPosY(3 * main_scale);
+					const std::string label = std::string("Mic ")+std::to_string(i+1); center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
+					ImGui::Dummy(ImVec2(chan_w,pad_top));
+					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
 							set_channel_volume(i, bar_value[inputcounter]);
 					};
-					ImGui::Dummy(ImVec2(0,32));
+					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
-					//if (toggleButton("Dim", ImVec2((absX*0.2)*0.3, 40), master_bools[0])) { if (connected) {set_bool_state(0);}};
-					if (toggleButton("###MicPhase"+std::to_string(i), ImVec2(0,0), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
+					//if (toggleButton("Dim", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);}};
+					if (toggleButton("###MicPhase"+std::to_string(i), ImVec2(fader_w, phase_h), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
 					inputcounter++;
 					ImGui::PopFont();
 					ImGui::EndGroup();
@@ -315,15 +348,15 @@ int main(int, char**)
 				}
 				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
 					ImGui::BeginGroup();
-					ImGui::Text("%s", (std::string("Digi ")+std::to_string(i+1)).c_str());
-					ImGui::Dummy(ImVec2(0,24));
-					if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(42, absY/1.8), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
+					const std::string label = std::string("Digi ")+std::to_string(i+1); center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
+					ImGui::Dummy(ImVec2(chan_w,pad_top));
+					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
 							set_channel_volume(i, bar_value[inputcounter]);
 					};
-					ImGui::Dummy(ImVec2(0,32));
+					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
-					if (toggleButton("###DigiPhase"+std::to_string(i), ImVec2(0,0), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
+					if (toggleButton("###DigiPhase"+std::to_string(i), ImVec2(fader_w, phase_h), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
 					inputcounter++;
 					ImGui::PopFont();
 					ImGui::EndGroup();
@@ -333,31 +366,30 @@ int main(int, char**)
 
 				ImGui::EndChild();
 			}
-			ImGui::SetCursorPosY(absY*0.965);
 			ImGui::Text(VERSION_MIXID);
 			//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::End();
 
-			ImGui::SetNextWindowPos(ImVec2(absX*0.8, 0.0f));
-			ImGui::SetNextWindowSize(ImVec2(absX*0.2, absY));
+			ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + mixer_w, viewport->Pos.y));
+			ImGui::SetNextWindowSize(ImVec2(panel_w, absY));
 			ImGui::Begin("Monitor", nullptr, ImGuiWindowFlags_NoDecoration);
 			ImGui::SeparatorText("Connection");
 			
-			ImGui::Text("  Selected Driver: %s", devices[driver_indicator].name.c_str());
+			TextCentered((std::string("Selected Driver: ") + devices[driver_indicator].name).c_str());
 			if (connected) {
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0,1.0,0.0,0.8));
-				ImGui::Text("               Connected");
-			}   
+				TextCentered("Connected");
+			}
 			else {
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0,0.0,0.0,0.8));
-				ImGui::Text("               Disconnected");
+				TextCentered("Disconnected");
 			} ImGui::PopStyleColor();
 
 			std::string name = "Connect";
 			if (connected)
 				name = "Disconnect";
 			
-			if (ImGui::Button(name.c_str(),ImVec2(ImGui::GetContentRegionAvail().x, 40))) {
+			if (ImGui::Button(name.c_str(),ImVec2(ImGui::GetContentRegionAvail().x, 40 * main_scale))) {
 				connected = !connected;
 				if (connected) {
 					if (!driver_init(devices[driver_indicator].usb_id)) {
@@ -378,33 +410,44 @@ int main(int, char**)
 				ImGui::Text("Make sure you have selected the correct driver and your usb permissions are correct.");
 				ImGui::Text("This can either be done by adding the usb device to the udev rules,");
 				ImGui::Text("or running MixiD with sudo permissions.");
-				ImGui::Dummy(ImVec2(10,absY*0.1));
+				ImGui::Dummy(ImVec2(10,20 * main_scale));
 				ImGui::Separator();
-				if (ImGui::Button("OK", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+				if (ImGui::Button("OK", ImVec2(120 * main_scale, 0))) { ImGui::CloseCurrentPopup(); }
 				ImGui::SetItemDefaultFocus();
 				ImGui::EndPopup();
 			}
 
 			ImGui::SeparatorText("Monitor");
-			ImGui::Dummy(ImVec2(10,absY*0.10));
-			ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x/3.5,20)); ImGui::SameLine();
+
+			// the knobs sit centred in whatever width the panel has, and the
+			// toggles are anchored to the bottom of it
+			const float knob_w = ImGui::GetTextLineHeight() * 4.0f;
+			const float btn_h = 40.0f * main_scale;
+			const float toggles_h = btn_h * 2.0f + style.ItemSpacing.y;
+			const float knob_gap = ImMax((absY - ImGui::GetCursorPosY() - toggles_h
+					- style.WindowPadding.y - knob_w * 2.0f - ImGui::GetTextLineHeightWithSpacing() * 4.0f) / 3.0f,
+				style.ItemSpacing.y);
+
+			ImGui::Dummy(ImVec2(0,knob_gap));
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_w) * 0.5f);
 			if (ImGuiKnobs::Knob("Main LR", &levels[0], 0.0f, 1.0f, 0.01f, "%.2f", ImGuiKnobVariant_Wiper)) {if (connected) set_speaker_volume(levels[0]);}
-			ImGui::Dummy(ImVec2(10,absY*0.05));
-			ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x/3.5,20)); ImGui::SameLine();
+			ImGui::Dummy(ImVec2(0,knob_gap));
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_w) * 0.5f);
 			if (ImGuiKnobs::Knob("Phones", &levels[1], 0.0f, 1.0f, 0.01f, "%.2f", ImGuiKnobVariant_Wiper)) {if (connected) set_hp_volume(levels[1]);}
 
-			ImGui::SetCursorPosY(absY*0.88);
+			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
+			const float btn_w = (ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * 2.0f) / 3.0f;
 			ImGui::BeginGroup();
-			if (toggleButton("Dim", ImVec2((absX*0.2)*0.3, 40), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
+			if (toggleButton("Dim", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
 			ImGui::SameLine();
-			if (toggleButton("Alt", ImVec2((absX*0.2)*0.3, 40), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
+			if (toggleButton("Alt", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
 			ImGui::SameLine();
-			if (toggleButton("Talk", ImVec2((absX*0.2)*0.3, 40), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
+			if (toggleButton("Talk", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
 			ImGui::BeginGroup();
-			if (toggleButton("Phase", ImVec2((absX*0.2)*0.3, 40), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
+			if (toggleButton("Phase", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
 			ImGui::EndGroup();
 			ImGui::SameLine();
-			if (toggleButton("Mono", ImVec2((absX*0.2)*0.3, 40), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
+			if (toggleButton("Mono", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
 			ImGui::EndGroup();
 
 
