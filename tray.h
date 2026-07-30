@@ -9,7 +9,7 @@
 #define TRAY_QUIT   2 // "Quit" picked from the tray menu
 #define TRAY_MASTER 16 // TRAY_MASTER + n: master toggle n picked from the menu
 
-#define TRAY_MASTER_COUNT 5 // Dim, Alt, Talk, Phase, Mono
+#define TRAY_MASTER_COUNT 6 // Dim, Alt, Talk, Phase, Mono, Cut
 
 #ifdef __cplusplus
 extern "C" {

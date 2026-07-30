@@ -147,6 +147,7 @@ static const struct menu_entry menu[] = {
   {ITEM_MASTER_BASE + 2, "Talk",        0,  2},
   {ITEM_MASTER_BASE + 3, "Phase",       0,  3},
   {ITEM_MASTER_BASE + 4, "Mono",        0,  4},
+  {ITEM_MASTER_BASE + 5, "Cut",         0,  5},
   {ITEM_SEP_BOTTOM,      NULL,          1, -1},
   {ITEM_QUIT,            "Quit",        0, -1},
 };

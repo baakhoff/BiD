@@ -289,7 +289,7 @@ static bool hw_readback = false;
 // the device itself and can be changed without the application ever knowing.
 static void sync_state_from_device()
 {
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < TRAY_MASTER_COUNT; i++) {
 		bool on;
 		if (get_bool_state(i, &on) && on != (bool)master_bools[i]) {
 			master_bools[i] = on;
@@ -486,7 +486,7 @@ int main(int, char**)
 				masterToggle[poll_idx] = on;
 				tray_set_master(poll_idx, on);
 			}
-			poll_idx = (poll_idx + 1) % 5;
+			poll_idx = (poll_idx + 1) % TRAY_MASTER_COUNT;
 		}
 		if (want_hide) {
 			want_hide = false;
@@ -789,6 +789,8 @@ int main(int, char**)
 			ImGui::EndGroup();
 			ImGui::SameLine();
 			if (toggleButton("Mono", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
+			ImGui::SameLine();
+			if (toggleButton("Cut", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
 			ImGui::EndGroup();
 
 
