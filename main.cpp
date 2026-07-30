@@ -216,11 +216,22 @@ int main(int, char**)
 #endif
 	{
 		glfwPollEvents();
-		if (tray_pump()) {
+		int tray_action = tray_pump();
+		if (tray_action == TRAY_TOGGLE) {
 			if (window)
 				want_hide = true;
 			else
 				window_open();
+		}
+		else if (tray_action == TRAY_QUIT) {
+			force_quit = true;
+		}
+		else if (tray_action >= TRAY_MASTER) {
+			int idx = tray_action - TRAY_MASTER;
+			master_bools[idx] = !master_bools[idx];
+			if (connected)
+				set_bool_state(idx);
+			tray_set_master(idx, master_bools[idx]);
 		}
 		if (want_hide) {
 			want_hide = false;
@@ -384,16 +395,16 @@ int main(int, char**)
 
 			ImGui::SetCursorPosY(absY*0.88);
 			ImGui::BeginGroup();
-			if (toggleButton("Dim", ImVec2((absX*0.2)*0.3, 40), master_bools[0])) { if (connected) {set_bool_state(0);}};
+			if (toggleButton("Dim", ImVec2((absX*0.2)*0.3, 40), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
 			ImGui::SameLine();
-			if (toggleButton("Alt", ImVec2((absX*0.2)*0.3, 40), master_bools[1])) { if (connected) {set_bool_state(1);}};
+			if (toggleButton("Alt", ImVec2((absX*0.2)*0.3, 40), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
 			ImGui::SameLine();
-			if (toggleButton("Talk", ImVec2((absX*0.2)*0.3, 40), master_bools[2])) { if (connected) {set_bool_state(2);}};
+			if (toggleButton("Talk", ImVec2((absX*0.2)*0.3, 40), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
 			ImGui::BeginGroup();
-			if (toggleButton("Phase", ImVec2((absX*0.2)*0.3, 40), master_bools[3])) { if (connected) {set_bool_state(3);}};
+			if (toggleButton("Phase", ImVec2((absX*0.2)*0.3, 40), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
 			ImGui::EndGroup();
 			ImGui::SameLine();
-			if (toggleButton("Mono", ImVec2((absX*0.2)*0.3, 40), master_bools[4])) { if (connected) {set_bool_state(4);}};
+			if (toggleButton("Mono", ImVec2((absX*0.2)*0.3, 40), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
 			ImGui::EndGroup();
 
 
