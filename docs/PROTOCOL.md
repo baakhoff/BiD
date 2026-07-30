@@ -59,11 +59,17 @@ phones — and 8..11 the digital one. The byte picks what that output plays:
 
     main mix   0x25 left half of the pair, 0x26 right
     alt        0x1e / 0x1f    the same feed for the alternate speakers
-    cue A      0x20 / 0x21
-    cue B      0x22 / 0x23
+    cue B      0x20 / 0x21
+    cue A      0x22 / 0x23
     DAW n      the output's own index: a fixed full-level feed straight from
                the computer, outside the monitor section, so the volume knob
                does not apply to it
+
+The cue order comes from listening, not from the decode: Monix's table reads
+`0x20/0x21` as cue A, but with the matrix's cue A cells (2 and 3) feeding an
+output routed there, it is the `0x22` pair that carries them — editing one
+cue audibly changed outputs routed to the other. On the wire the block runs
+alt, cue B, cue A.
 
 `0x25/0x26` is not a raw tap of the main mix bus: it is the monitor
 section's output, so the volume knob, dim and cut ride along on every output

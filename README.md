@@ -109,6 +109,8 @@ All done!
      on a cue the phones answer only to the Phones dial
    * The DAW return pair sits pinned on the left as L Out / R Out, and no
      longer scrolls away with the input strips
+   * The two cue routing codes were crossed with the cue mixes: editing one
+     cue changed outputs routed to the other. Caught by ear and swapped
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
