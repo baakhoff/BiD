@@ -101,6 +101,9 @@ All done!
      explains what the sources mean, and can reset to defaults
    * Routing is pushed to the device on connect like the rest of the state,
      which also recovers a device left mis-routed by older builds
+   * The faders edit any of the hardware's three mixes — Main, Cue A, Cue B —
+     switched with tabs above the strips. Each mix keeps its own levels and
+     pans, all pushed on connect
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

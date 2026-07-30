@@ -36,8 +36,11 @@ static bool connected = false;
 static bool tray_active = false;
 static bool force_quit = false;
 std::vector<float> levels = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
-static std::vector <float> bar_value;
-static std::vector <float> pan_value;
+// One set of faders serves all three matrix buses; the tabs above the strips
+// pick which mix is being edited, and every mix keeps its own levels and pans.
+static std::vector <float> bar_value[MIXER_BUSES];
+static std::vector <float> pan_value[MIXER_BUSES];
+static int current_mix = 0;
 static std::vector <bool> phase_value;
 static std::vector <bool> master_bools = {false,false,false,false,false,false};
 
@@ -118,6 +121,14 @@ static void reset_routing()
 		route_state[p] = route_default[p];
 }
 
+static void reset_mixes()
+{
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		bar_value[m].clear();
+		pan_value[m].clear();
+	}
+}
+
 // Whether this device answers reads on the monitor entity. Probed once on
 // connect, so a device that stalls is asked exactly once instead of being
 // polled forever.
@@ -146,10 +157,11 @@ static void sync_state_from_device()
 // the hardware quietly disagree.
 static void push_state_to_device()
 {
-	for (size_t i = 0; i < bar_value.size(); i++) {
-		set_channel_volume(i, bar_value[i], pan_value[i]);
+	for (int m = 0; m < MIXER_BUSES; m++)
+		for (size_t i = 0; i < bar_value[m].size(); i++)
+			set_channel_send(i, m, bar_value[m][i], pan_value[m][i]);
+	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
-	}
 	set_hp_volume(levels[1]);
 	for (int p = 0; p < 3; p++)
 		set_route_pair(p, route_state[p]);
@@ -261,8 +273,7 @@ int main(int, char**)
 	int _dev = device_probe();
 	if (_dev >= 0) {
 		driver_indicator = _dev;
-	    bar_value.clear();
-	    pan_value.clear();
+	    reset_mixes();
 	    phase_value.clear();
 	    reset_routing();
 	}
@@ -371,27 +382,45 @@ int main(int, char**)
 			bool test = true;
 
 			if (connected || test) { //Main controls
-				if (bar_value.size() == 0) {
+				if (bar_value[0].size() == 0) {
 					const device_properties &dev_init = devices[driver_indicator];
 					for (size_t i = 0; i < devices[driver_indicator].mic_inputs+devices[driver_indicator].digital_inputs; i++) {
 						bool is_monitor = dev_init.monitor_pair >= 0
 							&& ((int)i - dev_init.mic_inputs == dev_init.monitor_pair
 							 || (int)i - dev_init.mic_inputs == dev_init.monitor_pair + 1);
-						bar_value.push_back(is_monitor ? 1.0f : 0.0f);
 						phase_value.push_back(false);
 						// Everything starts centred except the digital pair
 						// that feeds the monitor outputs, which is the one
 						// place we know is stereo: panning it apart is what
 						// keeps its image instead of summing it to the middle.
-						const device_properties &dev = dev_init;
-						int d = (int)i - dev.mic_inputs;
+						int d = (int)i - dev_init.mic_inputs;
 						float pan = 0.5f;
-						if (dev.monitor_pair >= 0 && d == dev.monitor_pair)
+						if (dev_init.monitor_pair >= 0 && d == dev_init.monitor_pair)
 							pan = 0.0f;
-						else if (dev.monitor_pair >= 0 && d == dev.monitor_pair + 1)
+						else if (dev_init.monitor_pair >= 0 && d == dev_init.monitor_pair + 1)
 							pan = 1.0f;
-						pan_value.push_back(pan);
+						// Every mix starts the same: only the monitor pair
+						// open, so an output switched onto a cue hears the
+						// computer right away rather than silence.
+						for (int m = 0; m < MIXER_BUSES; m++) {
+							bar_value[m].push_back(is_monitor ? 1.0f : 0.0f);
+							pan_value[m].push_back(pan);
+						}
 					}
+				}
+				// Which mix the faders edit. The other two routing sources
+				// have nothing to mix: Alt is the main mix on the other
+				// speakers, DAW Thru bypasses the mixer at a fixed level.
+				if (ImGui::BeginTabBar("mixtabs")) {
+					const char* mix_names[MIXER_BUSES] = { "Main Mix", "Cue A", "Cue B" };
+					for (int m = 0; m < MIXER_BUSES; m++)
+						if (ImGui::BeginTabItem(mix_names[m])) { current_mix = m; ImGui::EndTabItem(); }
+					if (ImGui::TabItemButton("?", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("These are the three mixes the hardware can build.\n"
+							"Alt Spkr has no page: it is the Main Mix on the other speakers.\n"
+							"DAW Thru has no page: it bypasses the mixer at full level.");
+					ImGui::EndTabBar();
 				}
 				// keep one line free underneath for the version string
 				ImGui::BeginChild("Faders", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()), 0, ImGuiWindowFlags_HorizontalScrollbar);
@@ -418,19 +447,19 @@ int main(int, char**)
 					80.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
-				// Pan is the ratio between a channel's two main sends, which
-				// is exactly how the hardware matrix places it.
+				// Pan is the ratio between a channel's two sends on the mix
+				// being edited, which is exactly how the matrix places it.
 				auto pan_slider = [&](int idx, const std::string& id) {
 					char fmt[16];
-					float p = pan_value[idx];
+					float p = pan_value[current_mix][idx];
 					if (p < 0.499f)      snprintf(fmt, sizeof(fmt), "L%.0f", (0.5f - p) * 200.0f);
 					else if (p > 0.501f) snprintf(fmt, sizeof(fmt), "R%.0f", (p - 0.5f) * 200.0f);
 					else                 snprintf(fmt, sizeof(fmt), "C");
 					center_in_column(fader_w);
 					ImGui::SetNextItemWidth(fader_w);
-					if (ImGui::SliderFloat(("##pan" + id).c_str(), &pan_value[idx], 0.0f, 1.0f, fmt)) {
+					if (ImGui::SliderFloat(("##pan" + id).c_str(), &pan_value[current_mix][idx], 0.0f, 1.0f, fmt)) {
 						if (connected)
-							set_channel_volume(idx, bar_value[idx], pan_value[idx]);
+							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
 					}
 				};
 				int inputcounter = 0;
@@ -440,9 +469,9 @@ int main(int, char**)
 						ImGui::SetCursorPosY(3 * main_scale);
 					const std::string label = std::string("Mic ")+std::to_string(i+1); center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
-					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
+					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
-							set_channel_volume(inputcounter, bar_value[inputcounter], pan_value[inputcounter]);
+							set_channel_send(inputcounter, current_mix, bar_value[current_mix][inputcounter], pan_value[current_mix][inputcounter]);
 					};
 					pan_slider(inputcounter, "Mic"+std::to_string(i));
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
@@ -463,9 +492,9 @@ int main(int, char**)
 					}
 					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
-					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
+					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
-							set_channel_volume(inputcounter, bar_value[inputcounter], pan_value[inputcounter]);
+							set_channel_send(inputcounter, current_mix, bar_value[current_mix][inputcounter], pan_value[current_mix][inputcounter]);
 					};
 					pan_slider(inputcounter, "Digi"+std::to_string(i));
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
@@ -593,8 +622,7 @@ int main(int, char**)
 	                const bool is_selected = (driver_indicator == n);
 	                if (ImGui::Selectable(devices[n].name.c_str(), is_selected)) {
 	                    driver_indicator = n;
-	                    bar_value.clear();
-	                    pan_value.clear();
+	                    reset_mixes();
 	                    phase_value.clear();
 	                    reset_routing();
 	                }

@@ -159,18 +159,23 @@ void set_mixer_cell(int input, int send, float gain)
   }
 }
 
+// The three stereo buses a channel can be sent to, in matrix order.
+#define MIXER_BUSES 3
+
 // pan runs 0.0 hard left, 0.5 centre, 1.0 hard right. Writing one level to
-// both main sends, as this used to, sums every input to the middle and
-// throws away the stereo image of anything arriving as a pair.
-void set_channel_volume(uint16_t chan, float volume, float pan)
+// both sends, as this used to, sums every input to the middle and throws
+// away the stereo image of anything arriving as a pair. mix picks the bus:
+// 0 the main mix, 1 cue A, 2 cue B.
+void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 {
   assert(volume>=0 && volume<=1);
   assert(pan>=0 && pan<=1);
+  assert(mix>=0 && mix<MIXER_BUSES);
   // centre leaves both sends at the fader level, so a centred channel is as
   // loud as it was before there was a pan control at all
   float l = 2.0f * (1.0f - pan), r = 2.0f * pan;
-  set_mixer_cell(chan, SEND_MAIN_L, volume * (l > 1.0f ? 1.0f : l));
-  set_mixer_cell(chan, SEND_MAIN_R, volume * (r > 1.0f ? 1.0f : r));
+  set_mixer_cell(chan, mix * 2 + 0, volume * (l > 1.0f ? 1.0f : l));
+  set_mixer_cell(chan, mix * 2 + 1, volume * (r > 1.0f ? 1.0f : r));
 }
 
 
