@@ -21,6 +21,10 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <cstring>
+#include <cstdlib>
+#include <csignal>
+#include <sys/stat.h>
 #include "driver.h"
 #include "tray.h"
 
@@ -44,6 +48,8 @@ static int current_mix = 0;
 // The pinned output pair moves as one while Link is lit. A vector only
 // because toggleButton takes a vector<bool> reference.
 static std::vector<bool> out_link = {true};
+// One-shot: the mix tab the state file wants selected on the first frame.
+static int want_mix_tab = -1;
 static std::vector <bool> phase_value;
 static std::vector <bool> master_bools = {false,false,false,false,false,false};
 
@@ -133,6 +139,146 @@ static void reset_mixes()
 		pan_value[m].clear();
 	}
 }
+
+// A restart should come back with the mixes, routing and levels it left
+// with. Nothing of that can be read out of the hardware, so a plain text
+// file per device, keyed by USB id, is the only memory there is. It lives
+// in $XDG_CONFIG_HOME/bid, or ~/.config/bid.
+static std::string state_path()
+{
+	if (devices.empty())
+		return "";
+	std::string base;
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	if (xdg && *xdg) {
+		base = xdg;
+	} else {
+		const char *home = getenv("HOME");
+		if (!home || !*home)
+			return "";
+		base = std::string(home) + "/.config";
+	}
+	char name[40];
+	snprintf(name, sizeof(name), "/bid/state-%04x.conf", devices[driver_indicator].usb_id);
+	return base + name;
+}
+
+static void save_state()
+{
+	std::string path = state_path();
+	if (path.empty() || bar_value[0].empty())
+		return;
+	mkdir(path.substr(0, path.rfind('/')).c_str(), 0755);
+	std::string tmp = path + ".tmp";
+	FILE *f = fopen(tmp.c_str(), "w");
+	if (!f)
+		return;
+	size_t n = bar_value[0].size();
+	fprintf(f, "bid-state 1\nchannels %zu\n", n);
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		fprintf(f, "levels %d", m);
+		for (size_t i = 0; i < n; i++)
+			fprintf(f, " %.6f", bar_value[m][i]);
+		fprintf(f, "\npans %d", m);
+		for (size_t i = 0; i < n; i++)
+			fprintf(f, " %.6f", pan_value[m][i]);
+		fprintf(f, "\n");
+	}
+	fprintf(f, "phase");
+	for (size_t i = 0; i < n && i < phase_value.size(); i++)
+		fprintf(f, " %d", phase_value[i] ? 1 : 0);
+	fprintf(f, "\nroute %d %d %d\n", route_state[0], route_state[1], route_state[2]);
+	fprintf(f, "link %d\n", out_link[0] ? 1 : 0);
+	fprintf(f, "phones %.6f\n", levels[1]);
+	fprintf(f, "monitor %.6f\n", levels[0]);
+	fprintf(f, "tab %d\n", current_mix);
+	fclose(f);
+	// written to the side and renamed over, so a crash mid-write cannot
+	// leave a half file where the good one was
+	rename(tmp.c_str(), path.c_str());
+}
+
+// All or nothing: a file that does not parse, or that was written for a
+// different channel count, is ignored and the defaults stand.
+static void load_state()
+{
+	std::string path = state_path();
+	if (path.empty())
+		return;
+	FILE *f = fopen(path.c_str(), "r");
+	if (!f)
+		return;
+	const device_properties &dev = devices[driver_indicator];
+	const long want = dev.mic_inputs + dev.digital_inputs;
+	char key[16] = {0};
+	int ver = 0;
+	long n = 0;
+	std::vector<float> lv[MIXER_BUSES], pv[MIXER_BUSES];
+	std::vector<char> ph;
+	int route[3] = {0}, link = 1, tab = 0;
+	float phones = 0.0f, monitor = 0.0f;
+	auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+	bool ok = fscanf(f, "%15s %d", key, &ver) == 2 && !strcmp(key, "bid-state") && ver == 1
+	       && fscanf(f, "%15s %ld", key, &n) == 2 && !strcmp(key, "channels") && n == want;
+	auto row = [&](const char *name, std::vector<float> &out) {
+		int m = 0;
+		if (!ok || fscanf(f, "%15s %d", key, &m) != 2 || strcmp(key, name) != 0) {
+			ok = false;
+			return;
+		}
+		for (long i = 0; i < n; i++) {
+			float v = 0.0f;
+			if (fscanf(f, "%f", &v) != 1) {
+				ok = false;
+				return;
+			}
+			out.push_back(clamp01(v));
+		}
+	};
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		row("levels", lv[m]);
+		row("pans", pv[m]);
+	}
+	if (ok && (fscanf(f, "%15s", key) != 1 || strcmp(key, "phase") != 0))
+		ok = false;
+	for (long i = 0; ok && i < n; i++) {
+		int v = 0;
+		if (fscanf(f, "%d", &v) != 1)
+			ok = false;
+		else
+			ph.push_back(v != 0);
+	}
+	if (ok && (fscanf(f, "%15s %d %d %d", key, &route[0], &route[1], &route[2]) != 4 || strcmp(key, "route") != 0))
+		ok = false;
+	if (ok && (fscanf(f, "%15s %d", key, &link) != 2 || strcmp(key, "link") != 0))
+		ok = false;
+	if (ok && (fscanf(f, "%15s %f", key, &phones) != 2 || strcmp(key, "phones") != 0))
+		ok = false;
+	if (ok && (fscanf(f, "%15s %f", key, &monitor) != 2 || strcmp(key, "monitor") != 0))
+		ok = false;
+	if (ok && (fscanf(f, "%15s %d", key, &tab) != 2 || strcmp(key, "tab") != 0))
+		ok = false;
+	fclose(f);
+	if (!ok)
+		return;
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		bar_value[m] = lv[m];
+		pan_value[m] = pv[m];
+	}
+	phase_value.assign(ph.begin(), ph.end());
+	for (int p = 0; p < 3; p++)
+		route_state[p] = (route[p] >= 0 && route[p] < ROUTE_SOURCES) ? route[p] : route_default[p];
+	out_link[0] = link != 0;
+	levels[1] = clamp01(phones);
+	levels[0] = clamp01(monitor);
+	current_mix = (tab >= 0 && tab < MIXER_BUSES) ? tab : 0;
+	want_mix_tab = current_mix;
+}
+
+// A tray resident dies to SIGTERM at logout or shutdown; catching it turns
+// that into a normal quit, so the state still gets saved on the way out.
+static volatile sig_atomic_t got_signal = 0;
+static void quit_signal(int) { got_signal = 1; }
 
 // Whether this device answers reads on the monitor entity. Probed once on
 // connect, so a device that stalls is asked exactly once instead of being
@@ -281,7 +427,10 @@ int main(int, char**)
 	    reset_mixes();
 	    phase_value.clear();
 	    reset_routing();
+	    load_state();
 	}
+	signal(SIGINT, quit_signal);
+	signal(SIGTERM, quit_signal);
 
 	// Main loop
 #ifdef __EMSCRIPTEN__
@@ -294,6 +443,8 @@ int main(int, char**)
 #endif
 	{
 		glfwPollEvents();
+		if (got_signal)
+			force_quit = true;
 		int tray_action = tray_pump();
 		if (tray_action == TRAY_TOGGLE) {
 			if (window)
@@ -419,7 +570,7 @@ int main(int, char**)
 				if (ImGui::BeginTabBar("mixtabs")) {
 					const char* mix_names[MIXER_BUSES] = { "Main Mix", "Cue A", "Cue B" };
 					for (int m = 0; m < MIXER_BUSES; m++)
-						if (ImGui::BeginTabItem(mix_names[m])) { current_mix = m; ImGui::EndTabItem(); }
+						if (ImGui::BeginTabItem(mix_names[m], nullptr, m == want_mix_tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) { current_mix = m; ImGui::EndTabItem(); }
 					if (ImGui::TabItemButton("?", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {}
 					if (ImGui::IsItemHovered())
 						ImGui::SetTooltip("These are the three mixes the hardware can build.\n"
@@ -427,6 +578,7 @@ int main(int, char**)
 							"DAW Thru has no page: it bypasses the mixer at full level.");
 					ImGui::EndTabBar();
 				}
+				want_mix_tab = -1; // the state file's tab only needs forcing once
 				// keep one line free underneath for the version string
 				const float strip_h = ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing();
 				// a channel is: label, spacer, fader, spacer, phase button.
@@ -653,10 +805,12 @@ int main(int, char**)
 	            {
 	                const bool is_selected = (driver_indicator == n);
 	                if (ImGui::Selectable(devices[n].name.c_str(), is_selected)) {
+	                    save_state(); // keep the outgoing device's edits
 	                    driver_indicator = n;
 	                    reset_mixes();
 	                    phase_value.clear();
 	                    reset_routing();
+	                    load_state();
 	                }
 
 	                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
@@ -750,6 +904,7 @@ int main(int, char**)
 #endif
 
 	tray_shutdown();
+	save_state();
 	driver_shutdown(); //just in case disconnect
 	// Cleanup (window_close() is a no-op when already hidden to the tray)
 	window_close();

@@ -113,6 +113,10 @@ All done!
      cue changed outputs routed to the other. Caught by ear and swapped
    * L Out and R Out move as one while their Link button is lit; unlink to
      trim a side, relinking snaps the right fader back onto the left
+   * The mixer remembers itself: all three mixes, pans, phase, routing, the
+     link and the dials are saved per device under `~/.config/bid` on quit —
+     including a logout or shutdown killing the tray — and restored on the
+     next start, then pushed to the hardware on connect
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
