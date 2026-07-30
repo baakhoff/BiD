@@ -111,6 +111,8 @@ All done!
      longer scrolls away with the input strips
    * The two cue routing codes were crossed with the cue mixes: editing one
      cue changed outputs routed to the other. Caught by ear and swapped
+   * L Out and R Out move as one while their Link button is lit; unlink to
+     trim a side, relinking snaps the right fader back onto the left
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

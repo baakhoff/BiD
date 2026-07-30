@@ -41,6 +41,9 @@ std::vector<float> levels = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0
 static std::vector <float> bar_value[MIXER_BUSES];
 static std::vector <float> pan_value[MIXER_BUSES];
 static int current_mix = 0;
+// The pinned output pair moves as one while Link is lit. A vector only
+// because toggleButton takes a vector<bool> reference.
+static std::vector<bool> out_link = {true};
 static std::vector <bool> phase_value;
 static std::vector <bool> master_bools = {false,false,false,false,false,false};
 
@@ -469,17 +472,26 @@ int main(int, char**)
 				};
 				// one whole strip: label, fader, pan, phase. idx is the
 				// matrix input the strip drives, wid keeps widget ids apart.
-				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first) {
+				// A partner channel, when given, follows the fader so a
+				// linked stereo pair moves as one.
+				float link_row_y = 0.0f;
+				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first, int partner = -1) {
 					ImGui::BeginGroup();
 					if (first)
 						ImGui::SetCursorPosY(3 * main_scale);
 					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
 					center_in_column(fader_w); if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
-						if (connected)
+						if (partner >= 0)
+							bar_value[current_mix][partner] = bar_value[current_mix][idx];
+						if (connected) {
 							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+							if (partner >= 0)
+								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
+						}
 					};
 					pan_slider(idx, wid);
+					link_row_y = ImGui::GetCursorPosY();
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
 					if (toggleButton("###Phase"+wid, ImVec2(fader_w, phase_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
@@ -495,9 +507,20 @@ int main(int, char**)
 				const int mon_idx = dev.monitor_pair >= 0 ? dev.mic_inputs + dev.monitor_pair : -1;
 				if (mon_idx >= 0) {
 					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h));
-					draw_strip(mon_idx,     "L Out", "OutL", true);
+					draw_strip(mon_idx,     "L Out", "OutL", true,  out_link[0] ? mon_idx + 1 : -1);
 					ImGui::SameLine();
-					draw_strip(mon_idx + 1, "R Out", "OutR", false);
+					draw_strip(mon_idx + 1, "R Out", "OutR", false, out_link[0] ? mon_idx : -1);
+					// the resting band under the pan sliders carries the link
+					// toggle: lit, the two faders move as one
+					ImGui::SetCursorPos(ImVec2(0, link_row_y + style.ItemSpacing.y * 0.5f));
+					if (toggleButton("Link", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, pad_bottom - style.ItemSpacing.y), out_link[0])) {
+						if (out_link[0]) {
+							// relinking snaps the right side back onto the left
+							bar_value[current_mix][mon_idx + 1] = bar_value[current_mix][mon_idx];
+							if (connected)
+								set_channel_send(mon_idx + 1, current_mix, bar_value[current_mix][mon_idx + 1], pan_value[current_mix][mon_idx + 1]);
+						}
+					}
 					ImGui::EndChild();
 					ImGui::SameLine();
 				}
