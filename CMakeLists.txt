@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.15...4.0)
 project(
-  MixiD
-  VERSION 0.1.6
+  BiD
+  VERSION 0.2.0
   LANGUAGES C CXX)
 
-add_definitions(-DVERSION_MIXID="${MixiD_VERSION}") 
+add_definitions(-DVERSION_BID="${BiD_VERSION}") 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/CMake)
 INCLUDE(FindPkgConfig)
 include(FetchContent) 
@@ -64,25 +64,25 @@ endforeach()
 message("Converted to C header: ${ASSET_FILES}")
 
 # Adding something we can run - Output name matches target name
-add_executable(MixiD main.cpp imgui-knobs.cpp imgui-custom.cpp tray.c)
+add_executable(BiD main.cpp imgui-knobs.cpp imgui-custom.cpp tray.c)
 
 # Make sure you link your targets with this command. It can also link libraries and
 # even flags, so linking a target that does not exist will not give a configure-time error.
-target_link_libraries(MixiD PRIVATE imgui glfw ${OPENGL_LIBRARIES} ${LIBUSB_LIBRARIES})
+target_link_libraries(BiD PRIVATE imgui glfw ${OPENGL_LIBRARIES} ${LIBUSB_LIBRARIES})
 
 if (SDBUS_FOUND)
-	target_compile_definitions(MixiD PRIVATE HAVE_TRAY)
+	target_compile_definitions(BiD PRIVATE HAVE_TRAY)
 	if (SDBUS_IS_BASU)
-		target_compile_definitions(MixiD PRIVATE HAVE_BASU)
+		target_compile_definitions(BiD PRIVATE HAVE_BASU)
 	endif()
-	target_include_directories(MixiD PRIVATE ${SDBUS_INCLUDE_DIRS})
-	target_link_libraries(MixiD PRIVATE ${SDBUS_LIBRARIES})
+	target_include_directories(BiD PRIVATE ${SDBUS_INCLUDE_DIRS})
+	target_link_libraries(BiD PRIVATE ${SDBUS_LIBRARIES})
 else()
 	message(STATUS "libsystemd/basu not found, building without tray support")
 endif()
 
-# Desktop entry and icon, so MixiD shows up in application menus
+# Desktop entry and icon, so BiD shows up in application menus
 include(GNUInstallDirs)
-install(TARGETS MixiD RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES Desktop/mixid.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
-install(FILES Desktop/mixid.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)
+install(TARGETS BiD RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES Desktop/bid.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+install(FILES Desktop/bid.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)

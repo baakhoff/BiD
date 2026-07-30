@@ -95,7 +95,7 @@ bool VFaderInt(const char* label, const ImVec2& size, int* v, int v_min, int v_m
     return VFaderScalar(label, size, ImGuiDataType_S32, v, &v_min, &v_max, format, flags);
 }
 
-void StyleColorsMixiD(ImGuiStyle* dst)
+void StyleColorsBiD(ImGuiStyle* dst)
 {
     ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
     ImVec4* colors = style->Colors;

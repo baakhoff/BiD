@@ -11,7 +11,7 @@ namespace ImGui {
     bool VFaderFloat(const char* label, const ImVec2& size, float* v, float v_min, float v_max, const char* format = "%.3f", ImGuiSliderFlags flags = 0);
     bool VFaderInt(const char* label, const ImVec2& size, int* v, int v_min, int v_max, const char* format = "%d", ImGuiSliderFlags flags = 0);
 
-    void StyleColorsMixiD(ImGuiStyle* dst);
+    void StyleColorsBiD(ImGuiStyle* dst);
 };
 
 #endif

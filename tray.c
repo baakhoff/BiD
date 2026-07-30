@@ -1,8 +1,8 @@
-// System tray icon for MixiD, speaking the StatusNotifierItem protocol
+// System tray icon for BiD, speaking the StatusNotifierItem protocol
 // (org.kde.StatusNotifierItem) directly over D-Bus via sd-bus, so no GUI
 // toolkit dependency is needed. Works out of the box on KDE and on anything
 // else with a StatusNotifier tray; when no tray watcher is running,
-// tray_init() reports failure and MixiD keeps its plain quit-on-close
+// tray_init() reports failure and BiD keeps its plain quit-on-close
 // behaviour. Clicking the icon requests a show/hide toggle and right
 // clicking opens the small com.canonical.dbusmenu menu implemented below;
 // both surface through tray_pump().
@@ -43,7 +43,7 @@ static void icon_rect(int x0, int y0, int w, int h, uint32_t argb)
     }
 }
 
-// three little faders, matching what MixiD is about
+// three little faders, matching what BiD is about
 static void icon_build(void)
 {
   memset(icon, 0, sizeof(icon));
@@ -65,8 +65,8 @@ static int prop_string(sd_bus *b, const char *path, const char *iface,
 {
   const char *val = "";
   if (strcmp(prop, "Category") == 0) val = "ApplicationStatus";
-  else if (strcmp(prop, "Id") == 0) val = "MixiD";
-  else if (strcmp(prop, "Title") == 0) val = "MixiD";
+  else if (strcmp(prop, "Id") == 0) val = "BiD";
+  else if (strcmp(prop, "Title") == 0) val = "BiD";
   else if (strcmp(prop, "Status") == 0) val = "Active";
   return sd_bus_message_append(reply, "s", val);
 }

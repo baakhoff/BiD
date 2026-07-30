@@ -68,13 +68,13 @@ static void window_open()
 	if (window)
 		return;
 #ifdef GLFW_WAYLAND_APP_ID
-	glfwWindowHintString(GLFW_WAYLAND_APP_ID, "mixid");
+	glfwWindowHintString(GLFW_WAYLAND_APP_ID, "bid");
 #endif
 #ifdef GLFW_X11_CLASS_NAME
-	glfwWindowHintString(GLFW_X11_CLASS_NAME, "mixid");
-	glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mixid");
+	glfwWindowHintString(GLFW_X11_CLASS_NAME, "bid");
+	glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "bid");
 #endif
-	window = glfwCreateWindow((int)(1280 * main_scale), (int)(800 * main_scale), "MixiD - Open Source Audient mixer for Linux", nullptr, nullptr);
+	window = glfwCreateWindow((int)(1280 * main_scale), (int)(800 * main_scale), "BiD - Open Source Audient mixer for Linux", nullptr, nullptr);
 	if (!window)
 		return;
 	glfwMakeContextCurrent(window);
@@ -167,12 +167,12 @@ int main(int, char**)
 
 	// Setup scaling
 	ImGuiStyle& style = ImGui::GetStyle();
-	ImGui::StyleColorsMixiD(&style);
+	ImGui::StyleColorsBiD(&style);
 	style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
 	style.FontScaleDpi = main_scale;        // Set initial font scale. (using io.ConfigDpiScaleFonts=true makes this unnecessary. We leave both here for documentation purpose)
 
 	// Setup Platform/Renderer backends (window and backends are torn down and
-	// rebuilt together whenever MixiD hides to the tray)
+	// rebuilt together whenever BiD hides to the tray)
 	window_open();
 	if (window == nullptr)
 		return 1;
@@ -198,7 +198,7 @@ int main(int, char**)
 	bool show_another_window = false;
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-	//Tray icon: while one is available, closing the window hides MixiD
+	//Tray icon: while one is available, closing the window hides BiD
 	//instead of quitting (quit through Menu->Quit or the tray-less close)
 	tray_active = tray_init() != 0;
 
@@ -277,7 +277,7 @@ int main(int, char**)
 
 			ImGui::SetNextWindowPos(viewport->Pos);
 			ImGui::SetNextWindowSize(ImVec2(mixer_w, absY));
-			ImGui::Begin("MixiD - Open Source Audient mixer for Linux", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBringToFrontOnFocus);
+			ImGui::Begin("BiD - Open Source Audient mixer for Linux", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBringToFrontOnFocus);
 			if (ImGui::BeginMenuBar())
 			{
 				if (ImGui::BeginMenu("Menu"))
@@ -366,7 +366,7 @@ int main(int, char**)
 
 				ImGui::EndChild();
 			}
-			ImGui::Text(VERSION_MIXID);
+			ImGui::Text(VERSION_BID);
 			//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::End();
 
@@ -409,7 +409,7 @@ int main(int, char**)
 				ImGui::Text("USB Device can not be opened.");
 				ImGui::Text("Make sure you have selected the correct driver and your usb permissions are correct.");
 				ImGui::Text("This can either be done by adding the usb device to the udev rules,");
-				ImGui::Text("or running MixiD with sudo permissions.");
+				ImGui::Text("or running BiD with sudo permissions.");
 				ImGui::Dummy(ImVec2(10,20 * main_scale));
 				ImGui::Separator();
 				if (ImGui::Button("OK", ImVec2(120 * main_scale, 0))) { ImGui::CloseCurrentPopup(); }

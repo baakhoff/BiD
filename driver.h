@@ -50,7 +50,7 @@ int device_probe()
 // The iD firmware accepts the mixer control requests on any of its interfaces,
 // not just the AudioControl one (see issue #15). Sending them to the spare
 // DFU/vendor interface means snd-usb-audio keeps the audio interfaces and
-// playback continues while MixiD is connected. Returns -1 if the device has
+// playback continues while BiD is connected. Returns -1 if the device has
 // no such interface.
 int find_control_interface(libusb_device *dev)
 {
@@ -215,7 +215,7 @@ int driver_init(uint16_t deviceid)
 
   // Talk to the device through its spare DFU/vendor interface, so the kernel
   // audio driver keeps the AudioControl/Streaming interfaces and playback
-  // keeps running while MixiD is connected. Devices without a spare
+  // keeps running while BiD is connected. Devices without a spare
   // interface fall back to the old exclusive grab of interface 0.
   control_iface = find_control_interface(libusb_get_device(devh));
   if (control_iface < 0) {

@@ -1,12 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=MixiD
+Name=BiD
 GenericName=Audient iD Mixer
 Comment=Control panel for Audient iD audio interfaces
-Exec=MixiD
-Icon=mixid
+Exec=BiD
+Icon=bid
 Terminal=false
 Categories=AudioVideo;Audio;Mixer;
 Keywords=audient;mixer;audio;interface;soundcard;
-StartupWMClass=mixid
+StartupWMClass=bid
 SingleMainWindow=true

@@ -1,25 +1,23 @@
-<img width="1330" height="887" alt="Screenshot From 2025-12-17 02-36-46" src="https://github.com/user-attachments/assets/af8ae915-9656-4139-ad9c-05965a8cdb66" />
-
-# MixiD
+# BiD
 
 Unofficial Linux control panel for the Audient iD series interfaces based on libusb, glfw and imgui.
 
+BiD is a fork of [MixiD](https://github.com/TheOnlyJoey/MixiD) by [@TheOnlyJoey](https://mastodon.online/@TheOnlyJoey), which did the original reverse engineering and protocol work this builds on.
+
 ## Description
 
-Since there is no official support by Audient for the iD interfaces on Linux, MixID got created as an alternative to enable the functionality not available in the default class complient USB driver.
+Since there is no official support by Audient for the iD interfaces on Linux, this exists as an alternative to enable the functionality not available in the default class compliant USB driver.
+
+Unlike the original, BiD talks to the interface over its spare DFU interface rather than claiming the audio control interface, so the kernel keeps the sound card and playback carries on while the mixer is open. It also stays resident in the system tray, and the interface follows the window when you resize it.
 
 ## Notes and To Do
 
-* Support list can be found [here](https://github.com/TheOnlyJoey/MixiD/wiki/Support-List)
-  * As of 17 December 2025 all known iD interfaces should be functional to some degree
-  * If a new device gets released, please add your USB iD and amount of input/output details in an [Issue](https://github.com/TheOnlyJoey/MixiD/issues) so it can be added and verified in an update.
+* Devices are detected by USB id; the iD24 is the one verified on hardware, the rest are inherited from the original project's support list
+  * If a new device gets released, please open an [Issue](https://github.com/baakhoff/BiD/issues) with your USB id and input/output counts
 * The protocol is mostly figured out, just needs verification/testing
-   * Reading information back from the interfaces is still in progress.
-   * Things like VU meters and some switches/modes have yet to be implemented
-* Technically works on macOS
-   * Should probably not use on Windows
-* UI needs some additional work
-* For a complete to-do list please check the [issues](https://github.com/TheOnlyJoey/MixiD/issues)
+  * Reading state back from the interfaces is still missing, so the controls start at zero rather than at what the hardware is doing
+  * Things like VU meters and some switches/modes have yet to be implemented
+* Linux is the target; the tray and desktop integration are Linux only
 
 ## Compilation
 
@@ -39,53 +37,64 @@ Since there is no official support by Audient for the iD interfaces on Linux, Mi
 
 ## Usage
 
-* Either run through sudo, or setup apropriate udev rules for your interface
-* Run the MixiD executable
+* Either run through sudo, or setup appropriate udev rules for your interface
+* Run the BiD executable
 
-Optionally, `make install` also places a desktop entry and icon, so MixiD can be started from your application menu.
+Optionally, `make install` also places a desktop entry and icon, so BiD can be started from your application menu.
 
 ### System tray
 
-When the desktop provides a system tray, closing the window hides MixiD there instead of quitting, so the interface stays connected and reachable.
+When the desktop provides a system tray, closing the window hides BiD there instead of quitting, so the interface stays connected and reachable.
 Clicking the icon shows and hides the window again, and right clicking it opens a menu with the monitor toggles (Dim, Alt, Talk, Phase, Mono) and Quit.
 
 This needs a StatusNotifier tray, which KDE Plasma, Cinnamon, Budgie, XFCE and LXQt provide out of the box.
 GNOME needs an appindicator extension for it, and compositors such as Sway or Hyprland need a panel that implements a tray, for example Waybar.
-Without one, or when built without libsystemd/basu, MixiD simply quits on close as before.
+Without one, or when built without libsystemd/basu, BiD simply quits on close.
 
 ### udev rules
 
-Since by default, the audio interface is grabbed by the kernel module, and we require exclusive device grab to send information, we need to setup udev rules to allow not needing to use root permissions when opening MixiD.
-Luckily, all we have to do is add the Audient vendor id to the udev rules.
-The specific user might be different for your distro, but "plugdev" and "audio" seem to be the most commonly used.
+By default the audio interface is grabbed by the kernel module, so we need to setup udev rules to avoid needing root permissions when opening BiD.
+All we have to do is add the Audient vendor id to the udev rules.
+The specific group might be different for your distro, but "plugdev" and "audio" seem to be the most commonly used.
 
 Either:
 ```
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0666", GROUP="audio"' >> /etc/udev/rules.d/84-audient.rules
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="audio"' >> /etc/udev/rules.d/84-audient.rules
 ```
 or
 ```
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0666", GROUP="plugdev"' >> /etc/udev/rules.d/84-audient.rules
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="plugdev"' >> /etc/udev/rules.d/84-audient.rules
 ```
 depending on your distro's permission group.
 
 Then either reboot or use the following command to reload the udev rules for the running system.
 ```
-udevadm control --reload-rules
+udevadm control --reload-rules && udevadm trigger --attr-match=idVendor=2708
 ```
 All done!
 
 ## Authors
 
-[@TheOnlyJoey](https://mastodon.online/@TheOnlyJoey)
+* [@baakhoff](https://github.com/baakhoff) — BiD
+* [@TheOnlyJoey](https://mastodon.online/@TheOnlyJoey) — MixiD, which BiD is forked from
 
 ## Version History
 
+### BiD
+
+* 0.2.0
+   * Control goes through the spare DFU interface, so audio keeps playing while connected
+   * System tray icon with close-to-tray and a menu carrying the monitor toggles
+   * Desktop entry and icon, installed by `make install`
+   * The interface now follows the window size instead of the size it started at
+
+### MixiD, before the fork
+
 * 0.1.6
-   * All known iD usb-id's are now known and implemented, MixiD should work on every known interface!
+   * All known iD usb-id's are now known and implemented
 * 0.1.4
     * Now probes usb devices based on the supported id list and selects if possible
-    * Auto disconnects and re-attach to kernel when quitting the application (no more having to manually disconnect before closing)
+    * Auto disconnects and re-attach to kernel when quitting the application
     * Now should properly set all faders depending on the individual device inputs
     * Small UI Fixes
 * 0.1
@@ -93,9 +102,10 @@ All done!
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE.md file for details
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
 
 ## Acknowledgments
 
+* [MixiD](https://github.com/TheOnlyJoey/MixiD), the project this is forked from
 * [mymixer](https://github.com/r00tman/mymixer), prior attempt to reverse engineer the original iD14 with some minimal functionality.
-* [imgui](https://github.com/ocornut/imgui), my favorite modern lightweight gui
+* [imgui](https://github.com/ocornut/imgui), a modern lightweight gui
