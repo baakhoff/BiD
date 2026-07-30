@@ -620,11 +620,13 @@ int main(int, char**)
 						ImMax(fader_w, label_w) + 10.0f * main_scale, ImMax(96.0f * main_scale, label_w));
 				const float pill_w = 26.0f * main_scale, pill_h = 22.0f * main_scale;
 				const float knob_d = 34.0f * main_scale;
-				const float head_fix = 52.0f * main_scale;
-				const float below_fix = knob_d + 24.0f * main_scale;
+				const float head_fix = 54.0f * main_scale;
+				const float below_fix = knob_d + 22.0f * main_scale;
 				const float meter_w = 8.0f * main_scale;
 				const float meter_gap = 4.0f * main_scale;
-				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 6.0f + style.ScrollbarSize + 8.0f * main_scale),
+				// nine item gaps live between a strip's pieces; shorting them
+				// is what once pushed the LINK bar off the panel's foot
+				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 9.0f + style.ScrollbarSize + 8.0f * main_scale),
 					90.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
@@ -650,9 +652,9 @@ int main(int, char**)
 						float frac = (sg + 1.0f) / segs;
 						bool on = sg < lit;
 						ImU32 col;
-						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(52, 25, 23, 255);
-						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(50, 40, 22, 255);
-						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(23, 34, 27, 255);
+						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(36, 20, 19, 255);
+						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(35, 29, 18, 255);
+						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(17, 24, 20, 255);
 						dl->AddRectFilled(ImVec2(p.x + 1.5f, p.y + h - (sg + 1) * seg_h + 1.5f),
 							ImVec2(p.x + w - 1.5f, p.y + h - sg * seg_h - 1.0f), col, 1.5f);
 					}
@@ -671,7 +673,7 @@ int main(int, char**)
 					else                 snprintf(fmt, sizeof(fmt), "C");
 					center_in_column(knob_d);
 					bool moved = ImGuiKnobs::Knob(("##pan" + wid).c_str(), &pan_value[current_mix][idx], 0.0f, 1.0f, 0.004f, "",
-						ImGuiKnobVariant_Dot, knob_d, ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput);
+						ImGuiKnobVariant_WiperOnly, knob_d, ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput);
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 						pan_value[current_mix][idx] = 0.5f;
 						moved = true;
@@ -719,6 +721,19 @@ int main(int, char**)
 								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
 						}
 					};
+					// level under the cursor while dragging, double click to unity
+					if (ImGui::IsItemActive())
+						ImGui::SetTooltip("%d", (int)(bar_value[current_mix][idx] * 100.0f + 0.5f));
+					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+						bar_value[current_mix][idx] = 1.0f;
+						if (partner >= 0)
+							bar_value[current_mix][partner] = 1.0f;
+						if (connected) {
+							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+							if (partner >= 0)
+								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
+						}
+					}
 					ImGui::SameLine(0.0f, meter_gap);
 					{
 						ImVec2 mp = ImGui::GetCursorScreenPos();
@@ -753,7 +768,7 @@ int main(int, char**)
 					draw_strip(mon_idx,     "OUT L", chip_out, "OutL", out_link[0] ? mon_idx + 1 : -1, false);
 					ImGui::SameLine();
 					draw_strip(mon_idx + 1, "OUT R", chip_out, "OutR", out_link[0] ? mon_idx : -1, false);
-					float link_h = ImMax(16.0f * main_scale, strip_h - link_row_y - 8.0f * main_scale);
+					float link_h = ImClamp(strip_h - link_row_y - 6.0f * main_scale, 16.0f * main_scale, 26.0f * main_scale);
 					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x, link_row_y + 3.0f * main_scale));
 					ImGui::PushFont(font, 14.0f);
 					if (toggleButton("LINK", ImVec2(chan_w * 2.0f - style.ItemSpacing.x, link_h), out_link[0])) {
@@ -947,22 +962,27 @@ int main(int, char**)
 		}
 		if (show_routing)
 		{
-			ImGui::SetNextWindowSizeConstraints(ImVec2(460 * main_scale, 250 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
-			ImGui::SetNextWindowSize(ImVec2(500 * main_scale, 310 * main_scale), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSizeConstraints(ImVec2(440 * main_scale, 200 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
+			ImGui::SetNextWindowSize(ImVec2(470 * main_scale, 240 * main_scale), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 			ImGui::Begin("Routing", &show_routing);
 			// One source per physical output pair, matching how the official
 			// app treats routing. The rows are the routing outputs in device
-			// order: 0/1, 2/3, then the phones on 4/5.
+			// order: 0/1, 2/3, then the phones on 4/5. The full story lives
+			// in the (?) so the table is not buried under a paragraph.
 			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones" };
 			const char* source_names[] = { "Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Thru" };
-			ImGui::TextWrapped(
-				"Each output pair plays one source. Main Mix is the monitor section's feed: the "
-				"volume knob, Dim and Cut apply on any output carrying it, phones included. "
-				"Alt Spkr is that same feed for a second set of speakers, switched in with Alt. "
-				"The cues are separate mixes, clear of the monitor section - the phones sit on "
-				"Cue A so the speaker buttons leave them alone and the Phones dial sets their "
-				"level. DAW Thru comes straight from the computer at full level - no control at all.");
+			ImGui::TextDisabled("Each output pair plays one source.");
+			ImGui::SameLine();
+			ImGui::TextDisabled("(?)");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip(
+					"Main Mix is the monitor section's feed: the volume knob, Dim and Cut\n"
+					"apply on any output carrying it, phones included. Alt Spkr is that same\n"
+					"feed for a second set of speakers, switched in with Alt. The cues are\n"
+					"separate mixes, clear of the monitor section, so the speaker buttons\n"
+					"leave them alone and the Phones dial sets the phones' level. DAW Thru\n"
+					"comes straight from the computer at full level - no control at all.");
 			ImGui::Spacing();
 
 			if (ImGui::BeginTable("routing", 1 + ROUTE_SOURCES, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
@@ -971,7 +991,7 @@ int main(int, char**)
 					ImGui::CalcTextSize("Out 0+0").x + style.CellPadding.x * 2.0f);
 				for (int s = 0; s < ROUTE_SOURCES; s++)
 					ImGui::TableSetupColumn(source_names[s], ImGuiTableColumnFlags_WidthFixed,
-						ImGui::CalcTextSize(source_names[s]).x + style.CellPadding.x * 2.0f);
+						ImGui::CalcTextSize(source_names[s]).x + style.CellPadding.x * 2.0f + 8.0f * main_scale);
 				ImGui::TableHeadersRow();
 				for (int pair = 0; pair < 3; pair++)
 				{
