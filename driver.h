@@ -217,7 +217,7 @@ void set_bool_state(int mode)
 int get_bool_state(int mode, bool *out)
 {
   unsigned char b = 0;
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 200);
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 100);
   if (r != 1)
     return 0;
   *out = b != 0;
@@ -227,7 +227,7 @@ int get_bool_state(int mode, bool *out)
 int get_monitor_volume(float *out)
 {
   unsigned char b[2] = {0, 0};
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 200);
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 100);
   if (r != 2)
     return 0;
   float v = ((int16_t)(b[0] | (b[1] << 8)) + 32768) / 32767.0f;

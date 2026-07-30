@@ -278,25 +278,24 @@ int main(int, char**)
 				set_bool_state(idx);
 			tray_set_master(idx, master_bools[idx]);
 		}
-		// One control per tick, round robin: the front panel is picked up
-		// within about a second without flooding the device.
-		if (connected && hw_readback && glfwGetTime() - last_poll > 0.15 && !ImGui::IsAnyItemActive()) {
+		// The monitor level is the one control that gets watched while it
+		// moves, so it is read every tick. The toggles are discrete and go
+		// round robin, one per tick, which still catches them in a quarter
+		// of a second. Two transfers a tick keeps this far away from the
+		// rate that saturates the protocol.
+		if (connected && hw_readback && glfwGetTime() - last_poll > 0.05 && !ImGui::IsAnyItemActive()) {
 			last_poll = glfwGetTime();
+			float v;
+			if (get_monitor_volume(&v) && (v > levels[0] + 0.002f || v < levels[0] - 0.002f))
+				levels[0] = v;
 			static int poll_idx = 0;
-			if (poll_idx < 5) {
-				bool on;
-				if (get_bool_state(poll_idx, &on) && on != (bool)master_bools[poll_idx]) {
-					master_bools[poll_idx] = on;
-					masterToggle[poll_idx] = on;
-					tray_set_master(poll_idx, on);
-				}
+			bool on;
+			if (get_bool_state(poll_idx, &on) && on != (bool)master_bools[poll_idx]) {
+				master_bools[poll_idx] = on;
+				masterToggle[poll_idx] = on;
+				tray_set_master(poll_idx, on);
 			}
-			else {
-				float v;
-				if (get_monitor_volume(&v) && (v > levels[0] + 0.004f || v < levels[0] - 0.004f))
-					levels[0] = v;
-			}
-			poll_idx = (poll_idx + 1) % 6;
+			poll_idx = (poll_idx + 1) % 5;
 		}
 		if (want_hide) {
 			want_hide = false;
