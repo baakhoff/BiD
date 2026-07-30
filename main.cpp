@@ -22,6 +22,7 @@
 #include <string>
 #include <iostream>
 #include "driver.h"
+#include "tray.h"
 
 #include "Raw_Assets.h"
 
@@ -32,6 +33,8 @@
 
 static int driver_indicator = 0;
 static bool connected = false;
+static bool tray_active = false;
+static bool force_quit = false;
 std::vector<float> levels = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 static std::vector <float> bar_value;
 static std::vector <bool> phase_value;
@@ -40,6 +43,14 @@ static std::vector <bool> master_bools = {false,false,false,false,false,false};
 static void glfw_error_callback(int error, const char* description)
 {
 	fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+}
+
+static void window_close_callback(GLFWwindow* win)
+{
+	if (tray_active && !force_quit) {
+		glfwSetWindowShouldClose(win, GLFW_FALSE);
+		glfwHideWindow(win);
+	}
 }
 
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
@@ -91,6 +102,16 @@ int main(int, char**)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 	//glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
 	//glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+#endif
+
+	// Identify the window to the desktop so taskbars and launchers can match
+	// it to a mixid.desktop entry
+#ifdef GLFW_WAYLAND_APP_ID
+	glfwWindowHintString(GLFW_WAYLAND_APP_ID, "mixid");
+#endif
+#ifdef GLFW_X11_CLASS_NAME
+	glfwWindowHintString(GLFW_X11_CLASS_NAME, "mixid");
+	glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "mixid");
 #endif
 
 	// Create window with graphics context
@@ -145,6 +166,11 @@ int main(int, char**)
 	bool show_another_window = false;
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+	//Tray icon: while one is available, closing the window hides MixiD
+	//instead of quitting (quit through Menu->Quit or the tray-less close)
+	tray_active = tray_init() != 0;
+	glfwSetWindowCloseCallback(window, window_close_callback);
+
 	//Init all the device properties
 	setup_devices();
 	//Probe for known usb devices
@@ -165,7 +191,13 @@ int main(int, char**)
 #endif
 	{
 		glfwPollEvents();
-		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+		if (tray_pump()) {
+			if (glfwGetWindowAttrib(window, GLFW_VISIBLE))
+				glfwHideWindow(window);
+			else
+				glfwShowWindow(window);
+		}
+		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0 || glfwGetWindowAttrib(window, GLFW_VISIBLE) == 0)
 		{
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
@@ -193,6 +225,8 @@ int main(int, char**)
 				{
 					if (ImGui::MenuItem("Driver Select")) {show_another_window = !show_another_window;};
 					if (ImGui::MenuItem("Routing")) {show_routing = !show_routing;};
+					ImGui::Separator();
+					if (ImGui::MenuItem("Quit")) {force_quit = true; glfwSetWindowShouldClose(window, GLFW_TRUE);};
 					ImGui::EndMenu();
 				}
 
@@ -421,6 +455,7 @@ int main(int, char**)
 	EMSCRIPTEN_MAINLOOP_END;
 #endif
 
+	tray_shutdown();
 	driver_shutdown(); //just in case disconnect
 	// Cleanup
 	ImGui_ImplOpenGL3_Shutdown();
