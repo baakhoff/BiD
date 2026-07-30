@@ -209,18 +209,27 @@ void set_bool_state(int mode)
   //return masterToggle[mode];
 }
 
-inline bool phaseToggle[10] = {false,false,false,false,false,false, false,false,false,false}; // Dummy storage selection storage
+// one per matrix input: the iD44 and iD48 show more channels than the ten
+// this used to hold, and the fader loop indexes it by channel
+inline bool phaseToggle[16] = {};
 
-void set_phase_state(int chan) //0 indexed
+void set_phase(int chan, bool on) //0 indexed
 {
-  int err = 0;
-  phaseToggle[chan] = !phaseToggle[chan];
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 0);
+  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+    return;
+  phaseToggle[chan] = on;
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 0);
 
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
   }
-  //return masterToggle[mode];
+}
+
+void set_phase_state(int chan) //0 indexed
+{
+  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+    return;
+  set_phase(chan, !phaseToggle[chan]);
 }
 
 

@@ -103,6 +103,19 @@ void TextCentered(const char* text) {
 	ImGui::TextUnformatted(text);
 }
 
+// Nothing in the matrix or the output feature unit can be read back, so on
+// connect we send what the window is showing. Without this a control does
+// nothing at all until it happens to be nudged, and until then the app and
+// the hardware quietly disagree.
+static void push_state_to_device()
+{
+	for (size_t i = 0; i < bar_value.size(); i++) {
+		set_channel_volume(i, bar_value[i], pan_value[i]);
+		set_phase(i, phase_value[i]);
+	}
+	set_hp_volume(levels[1]);
+}
+
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
 	int mastercol = 0;
 	bool state = false;
@@ -300,14 +313,18 @@ int main(int, char**)
 
 			if (connected || test) { //Main controls
 				if (bar_value.size() == 0) {
+					const device_properties &dev_init = devices[driver_indicator];
 					for (size_t i = 0; i < devices[driver_indicator].mic_inputs+devices[driver_indicator].digital_inputs; i++) {
-						bar_value.push_back(0.0f);
+						bool is_monitor = dev_init.monitor_pair >= 0
+							&& ((int)i - dev_init.mic_inputs == dev_init.monitor_pair
+							 || (int)i - dev_init.mic_inputs == dev_init.monitor_pair + 1);
+						bar_value.push_back(is_monitor ? 1.0f : 0.0f);
 						phase_value.push_back(false);
 						// Everything starts centred except the digital pair
 						// that feeds the monitor outputs, which is the one
 						// place we know is stereo: panning it apart is what
 						// keeps its image instead of summing it to the middle.
-						const device_properties &dev = devices[driver_indicator];
+						const device_properties &dev = dev_init;
 						int d = (int)i - dev.mic_inputs;
 						float pan = 0.5f;
 						if (dev.monitor_pair >= 0 && d == dev.monitor_pair)
@@ -433,7 +450,10 @@ int main(int, char**)
 					if (!driver_init(devices[driver_indicator].usb_id)) {
 						connected = false;
 						ImGui::OpenPopup("No connection possible");
-					};
+					}
+					else {
+						push_state_to_device();
+					}
 				}
 				else
 					driver_shutdown();
