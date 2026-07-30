@@ -129,6 +129,7 @@ void StyleColorsBiD(ImGuiStyle* dst)
     style->PopupBorderSize   = 1.0f;
     style->WindowTitleAlign  = ImVec2(0.50f, 0.50f);
     style->SeparatorTextBorderSize = 2.0f;
+    style->ButtonTextAlign      = ImVec2(0.50f, 0.55f);
 
     colors[ImGuiCol_Text]                   = text;
     colors[ImGuiCol_TextDisabled]           = text_dim;

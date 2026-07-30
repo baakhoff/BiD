@@ -136,6 +136,12 @@ All done!
      back to centre. The master panel leads with the device name and a status
      dot, then the monitor knob as the hero, phones under it, and the
      uppercase toggle grid at the bottom
+   * Mute and Solo pills on every strip, and a master fader per mix at the
+     right edge scaling everything that mix sends. Neither exists in the
+     hardware, so both are baked into what reaches the matrix — and both are
+     remembered in the state file
+   * Faders tooltip their level while dragging and double-click to unity;
+     the Driver Select and Routing windows fix themselves at content size
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

@@ -51,6 +51,12 @@ static int current_mix = 0;
 static std::vector<bool> out_link = {true};
 // One-shot: the mix tab the state file wants selected on the first frame.
 static int want_mix_tab = -1;
+// Per mix: a master trim over everything it sends, and mute/solo per
+// channel. None of this exists in hardware - it is baked into the levels
+// that reach the matrix. Solo mutes everyone who is not soloed.
+static float mix_master[MIXER_BUSES] = {1.0f, 1.0f, 1.0f};
+static std::vector<bool> mute_value[MIXER_BUSES];
+static std::vector<bool> solo_value[MIXER_BUSES];
 static std::vector <bool> phase_value;
 static std::vector <bool> master_bools = {false,false,false,false,false,false};
 
@@ -138,7 +144,30 @@ static void reset_mixes()
 	for (int m = 0; m < MIXER_BUSES; m++) {
 		bar_value[m].clear();
 		pan_value[m].clear();
+		mute_value[m].clear();
+		solo_value[m].clear();
+		mix_master[m] = 1.0f;
 	}
+}
+
+// What actually reaches the matrix: the fader times the mix master, and
+// nothing at all when the channel is muted or someone else is soloed.
+static void send_channel(int idx, int m)
+{
+	bool any_solo = false;
+	for (size_t i = 0; i < solo_value[m].size(); i++)
+		if (solo_value[m][i]) { any_solo = true; break; }
+	float v = bar_value[m][idx] * mix_master[m];
+	if (idx < (int)mute_value[m].size()
+	    && (mute_value[m][idx] || (any_solo && !solo_value[m][idx])))
+		v = 0.0f;
+	set_channel_send(idx, m, v, pan_value[m][idx]);
+}
+
+static void send_mix(int m)
+{
+	for (size_t i = 0; i < bar_value[m].size(); i++)
+		send_channel(i, m);
 }
 
 // A restart should come back with the mixes, routing and levels it left
@@ -193,6 +222,16 @@ static void save_state()
 	fprintf(f, "phones %.6f\n", levels[1]);
 	fprintf(f, "monitor %.6f\n", levels[0]);
 	fprintf(f, "tab %d\n", current_mix);
+	fprintf(f, "masters %.6f %.6f %.6f\n", mix_master[0], mix_master[1], mix_master[2]);
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		fprintf(f, "mutes %d", m);
+		for (size_t i = 0; i < n && i < mute_value[m].size(); i++)
+			fprintf(f, " %d", mute_value[m][i] ? 1 : 0);
+		fprintf(f, "\nsolos %d", m);
+		for (size_t i = 0; i < n && i < solo_value[m].size(); i++)
+			fprintf(f, " %d", solo_value[m][i] ? 1 : 0);
+		fprintf(f, "\n");
+	}
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -218,6 +257,8 @@ static void load_state()
 	std::vector<char> ph;
 	int route[3] = {0}, link = 1, tab = 0;
 	float phones = 0.0f, monitor = 0.0f;
+	float mm[MIXER_BUSES] = {1.0f, 1.0f, 1.0f};
+	std::vector<char> mu[MIXER_BUSES], so[MIXER_BUSES];
 	auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
 	bool ok = fscanf(f, "%15s %d", key, &ver) == 2 && !strcmp(key, "bid-state") && ver == 1
 	       && fscanf(f, "%15s %ld", key, &n) == 2 && !strcmp(key, "channels") && n == want;
@@ -259,6 +300,22 @@ static void load_state()
 		ok = false;
 	if (ok && (fscanf(f, "%15s %d", key, &tab) != 2 || strcmp(key, "tab") != 0))
 		ok = false;
+	// newer fields: absent from older files, which stay valid without them
+	bool extra = ok && fscanf(f, "%15s %f %f %f", key, &mm[0], &mm[1], &mm[2]) == 4 && strcmp(key, "masters") == 0;
+	for (int m = 0; extra && m < MIXER_BUSES; m++) {
+		int mi = 0;
+		extra = fscanf(f, "%15s %d", key, &mi) == 2 && strcmp(key, "mutes") == 0;
+		for (long i = 0; extra && i < n; i++) {
+			int v = 0;
+			if (fscanf(f, "%d", &v) != 1) extra = false; else mu[m].push_back(v != 0);
+		}
+		if (extra)
+			extra = fscanf(f, "%15s %d", key, &mi) == 2 && strcmp(key, "solos") == 0;
+		for (long i = 0; extra && i < n; i++) {
+			int v = 0;
+			if (fscanf(f, "%d", &v) != 1) extra = false; else so[m].push_back(v != 0);
+		}
+	}
 	fclose(f);
 	if (!ok)
 		return;
@@ -274,6 +331,17 @@ static void load_state()
 	levels[0] = clamp01(monitor);
 	current_mix = (tab >= 0 && tab < MIXER_BUSES) ? tab : 0;
 	want_mix_tab = current_mix;
+	for (int m = 0; m < MIXER_BUSES; m++) {
+		mix_master[m] = extra ? clamp01(mm[m]) : 1.0f;
+		if (extra && (long)mu[m].size() == n)
+			mute_value[m].assign(mu[m].begin(), mu[m].end());
+		else
+			mute_value[m].assign(n, false);
+		if (extra && (long)so[m].size() == n)
+			solo_value[m].assign(so[m].begin(), so[m].end());
+		else
+			solo_value[m].assign(n, false);
+	}
 }
 
 // A tray resident dies to SIGTERM at logout or shutdown; catching it turns
@@ -321,7 +389,7 @@ static void push_state_to_device()
 {
 	for (int m = 0; m < MIXER_BUSES; m++)
 		for (size_t i = 0; i < bar_value[m].size(); i++)
-			set_channel_send(i, m, bar_value[m][i], pan_value[m][i]);
+			send_channel(i, m);
 	// The matrix can have more rows than the strips show - on the iD24 the
 	// last four are DAW returns 3..6 - and the hardware boots with cells
 	// open. Anything without a fader gets written to silence, or it plays
@@ -586,6 +654,8 @@ int main(int, char**)
 						for (int m = 0; m < MIXER_BUSES; m++) {
 							bar_value[m].push_back(is_monitor ? 1.0f : 0.0f);
 							pan_value[m].push_back(pan);
+							mute_value[m].push_back(false);
+							solo_value[m].push_back(false);
 						}
 					}
 				}
@@ -618,9 +688,9 @@ int main(int, char**)
 				if (chan_count > 0)
 					chan_w = ImClamp((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * (chan_count - 1)) / chan_count,
 						ImMax(fader_w, label_w) + 10.0f * main_scale, ImMax(96.0f * main_scale, label_w));
-				const float pill_w = 26.0f * main_scale, pill_h = 22.0f * main_scale;
+				const float pill_w = 20.0f * main_scale, pill_h = 18.0f * main_scale;
 				const float knob_d = 34.0f * main_scale;
-				const float head_fix = 54.0f * main_scale;
+				const float head_fix = 50.0f * main_scale;
 				const float below_fix = knob_d + 22.0f * main_scale;
 				const float meter_w = 8.0f * main_scale;
 				const float meter_gap = 4.0f * main_scale;
@@ -679,7 +749,7 @@ int main(int, char**)
 						moved = true;
 					}
 					if (moved && connected)
-						set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+						send_channel(idx, current_mix);
 					ImGui::PushFont(font, 13.0f);
 					center_in_column(ImGui::CalcTextSize(fmt).x);
 					ImGui::TextDisabled("%s", fmt);
@@ -706,19 +776,33 @@ int main(int, char**)
 							ImVec2(up.x + (chan_w + uw) * 0.5f, up.y + 4.0f * main_scale), chip, 2.0f);
 					}
 					ImGui::Dummy(ImVec2(chan_w, 6.0f * main_scale));
-					center_in_column(pill_w);
-					ImGui::PushFont(audiofont, 17);
-					if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
-					ImGui::PopFont();
+					// mute, solo and phase share one pill row: red, yellow, amber
+					{
+						float ps = 3.0f * main_scale;
+						center_in_column(pill_w * 3.0f + ps * 2.0f);
+						ImGui::PushFont(font, 13.0f);
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.92f, 0.30f, 0.28f, 1.00f));
+						if (toggleButton("M###Mu"+wid, ImVec2(pill_w, pill_h), mute_value[current_mix][idx])) { if (connected) send_channel(idx, current_mix); }
+						ImGui::PopStyleColor();
+						ImGui::SameLine(0.0f, ps);
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.83f, 0.25f, 1.00f));
+						if (toggleButton("S###So"+wid, ImVec2(pill_w, pill_h), solo_value[current_mix][idx])) { if (connected) send_mix(current_mix); }
+						ImGui::PopStyleColor();
+						ImGui::PopFont();
+						ImGui::SameLine(0.0f, ps);
+						ImGui::PushFont(audiofont, 14);
+						if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
+						ImGui::PopFont();
+					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f);
 					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
 						if (connected) {
-							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+							send_channel(idx, current_mix);
 							if (partner >= 0)
-								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
+								send_channel(partner, current_mix);
 						}
 					};
 					// level under the cursor while dragging, double click to unity
@@ -729,9 +813,9 @@ int main(int, char**)
 						if (partner >= 0)
 							bar_value[current_mix][partner] = 1.0f;
 						if (connected) {
-							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
+							send_channel(idx, current_mix);
 							if (partner >= 0)
-								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
+								send_channel(partner, current_mix);
 						}
 					}
 					ImGui::SameLine(0.0f, meter_gap);
@@ -776,7 +860,7 @@ int main(int, char**)
 							// relinking snaps the right side back onto the left
 							bar_value[current_mix][mon_idx + 1] = bar_value[current_mix][mon_idx];
 							if (connected)
-								set_channel_send(mon_idx + 1, current_mix, bar_value[current_mix][mon_idx + 1], pan_value[current_mix][mon_idx + 1]);
+								send_channel(mon_idx + 1, current_mix);
 						}
 					}
 					ImGui::PopFont();
@@ -785,7 +869,7 @@ int main(int, char**)
 					ImGui::SameLine();
 				}
 				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.105f, 0.115f, 0.135f, 1.00f));
-				ImGui::BeginChild("Faders", ImVec2(0, strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
+				ImGui::BeginChild("Faders", ImVec2(-(chan_w + style.ItemSpacing.x), strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
 				bool first = true;
 				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
 					if (!first) ImGui::SameLine();
@@ -798,6 +882,51 @@ int main(int, char**)
 					if (!first) ImGui::SameLine();
 					draw_strip(dev.mic_inputs + i, "DIGI " + std::to_string(i + 1), chip_digi, "Digi" + std::to_string(i));
 					first = false;
+				}
+				ImGui::EndChild();
+				ImGui::PopStyleColor();
+				ImGui::SameLine();
+				// the mix master: one fader scaling everything the current mix
+				// sends. The hardware has no bus fader, so it is baked into the
+				// writes; the strip lives at the right edge the way consoles put it.
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.125f, 0.135f, 0.158f, 1.00f));
+				ImGui::BeginChild("MixMaster", ImVec2(chan_w, strip_h));
+				{
+					const char* mnames[MIXER_BUSES] = { "MAIN", "CUE A", "CUE B" };
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					ImGui::PushFont(font, 15.0f);
+					center_in_column(ImGui::CalcTextSize(mnames[current_mix]).x);
+					ImGui::TextUnformatted(mnames[current_mix]);
+					ImGui::PopFont();
+					{
+						ImDrawList* dl = ImGui::GetWindowDrawList();
+						float uw = 22.0f * main_scale;
+						ImVec2 up = ImGui::GetCursorScreenPos();
+						dl->AddRectFilled(ImVec2(up.x + (chan_w - uw) * 0.5f, up.y + 1.0f * main_scale),
+							ImVec2(up.x + (chan_w + uw) * 0.5f, up.y + 4.0f * main_scale), IM_COL32(255, 163, 41, 235), 2.0f);
+					}
+					ImGui::Dummy(ImVec2(chan_w, 6.0f * main_scale));
+					ImGui::Dummy(ImVec2(chan_w, pill_h)); // stay level with the strips
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					center_in_column(fader_w);
+					if (ImGui::VFaderFloat("##vMixMaster", ImVec2(fader_w, fader_h), &mix_master[current_mix], 0.0f, 1.0f, "%.2f")) {
+						if (connected) send_mix(current_mix);
+					};
+					if (ImGui::IsItemActive())
+						ImGui::SetTooltip("%d", (int)(mix_master[current_mix] * 100.0f + 0.5f));
+					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+						mix_master[current_mix] = 1.0f;
+						if (connected) send_mix(current_mix);
+					}
+					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					{
+						char vb[8];
+						snprintf(vb, sizeof(vb), "%d", (int)(mix_master[current_mix] * 100.0f + 0.5f));
+						ImGui::PushFont(font, 13.0f);
+						center_in_column(ImGui::CalcTextSize(vb).x);
+						ImGui::TextDisabled("%s", vb);
+						ImGui::PopFont();
+					}
 				}
 				ImGui::EndChild();
 				ImGui::PopStyleColor();
@@ -906,19 +1035,25 @@ int main(int, char**)
 			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[1] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
 
 			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
-			const float btn_w = (ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * 2.0f) / 3.0f;
+			const float grid_w = ImGui::GetContentRegionAvail().x;
+			const float btn_w = (float)(int)((grid_w - style.ItemSpacing.x * 2.0f) / 3.0f);
+			auto grid_row = [&]() { ImGui::SetCursorPosX(style.WindowPadding.x + ImMax(0.0f, (grid_w - (btn_w * 3.0f + style.ItemSpacing.x * 2.0f)) * 0.5f)); };
+			ImGui::PushFont(font, 16.0f);
 			ImGui::BeginGroup();
+			grid_row();
 			if (toggleButton("DIM", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
 			ImGui::SameLine();
 			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
 			ImGui::SameLine();
 			if (toggleButton("TALK", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
+			grid_row();
 			if (toggleButton("PHASE", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
 			ImGui::SameLine();
 			if (toggleButton("MONO", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
 			ImGui::SameLine();
 			if (toggleButton("CUT", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
 			ImGui::EndGroup();
+			ImGui::PopFont();
 
 
 			ImGui::End();
@@ -929,12 +1064,13 @@ int main(int, char**)
 		{
 			// A floor on the size, so the window is usable even when imgui.ini
 			// carries a size saved at a different display scale.
-			ImGui::SetNextWindowSizeConstraints(ImVec2(380 * main_scale, 130 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
-			ImGui::SetNextWindowSize(ImVec2(420 * main_scale, 140 * main_scale), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-			ImGui::Begin("Driver Select", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
+			// sized to its content and not resizable: there is nothing in it
+			// worth stretching
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::Begin("Driver Select", &show_another_window, ImGuiWindowFlags_AlwaysAutoResize);
 	        
 	        //const char* combo_preview_value = items[item_selected_idx];
+	        ImGui::SetNextItemWidth(240.0f * main_scale);
 	        if (ImGui::BeginCombo("Interface type", devices[driver_indicator].name.c_str()))
 	        {
 	            for (int n = 0; n < devices.size(); n++)
@@ -962,10 +1098,8 @@ int main(int, char**)
 		}
 		if (show_routing)
 		{
-			ImGui::SetNextWindowSizeConstraints(ImVec2(440 * main_scale, 200 * main_scale), ImVec2(FLT_MAX, FLT_MAX));
-			ImGui::SetNextWindowSize(ImVec2(470 * main_scale, 240 * main_scale), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-			ImGui::Begin("Routing", &show_routing);
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::Begin("Routing", &show_routing, ImGuiWindowFlags_AlwaysAutoResize);
 			// One source per physical output pair, matching how the official
 			// app treats routing. The rows are the routing outputs in device
 			// order: 0/1, 2/3, then the phones on 4/5. The full story lives
