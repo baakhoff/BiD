@@ -115,8 +115,9 @@ void set_hp_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0a00 | control_iface, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0a00 | control_iface, (uint8_t*)&vol, 2, 0);
+  // headphones live on entity 0x0c selector 0x02, both channels
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0201, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0202, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
   }
@@ -132,15 +133,39 @@ void set_speaker_volume(float volume) {
   }
 }
 
-void set_channel_volume(uint16_t chan, float volume) {
-  assert(volume>=0 && volume<=1);
-  uint16_t vol = float_to_u16(volume);
-  int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6), 0x3c00 | control_iface, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100+(chan*6)+1, 0x3c00 | control_iface, (uint8_t*)&vol, 2, 0);
+// The matrix (entity 0x3c) is 96 cells: 16 inputs by 6 sends, addressed as a
+// flat cell number, so cell = input * 6 + send. The six sends are three
+// stereo buses, not six mono outputs.
+enum mixer_send {
+  SEND_MAIN_L  = 0, SEND_MAIN_R  = 1,
+  SEND_CUE_A_L = 2, SEND_CUE_A_R = 3,
+  SEND_CUE_B_L = 4, SEND_CUE_B_R = 5,
+};
+#define MIXER_SENDS 6
+
+void set_mixer_cell(int input, int send, float gain)
+{
+  assert(gain>=0 && gain<=1);
+  uint16_t v = float_to_u16(gain);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * MIXER_SENDS + send,
+                                    0x3c00 | control_iface, (uint8_t*)&v, 2, 0);
   if (err < 0) {
     printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
   }
+}
+
+// pan runs 0.0 hard left, 0.5 centre, 1.0 hard right. Writing one level to
+// both main sends, as this used to, sums every input to the middle and
+// throws away the stereo image of anything arriving as a pair.
+void set_channel_volume(uint16_t chan, float volume, float pan)
+{
+  assert(volume>=0 && volume<=1);
+  assert(pan>=0 && pan<=1);
+  // centre leaves both sends at the fader level, so a centred channel is as
+  // loud as it was before there was a pan control at all
+  float l = 2.0f * (1.0f - pan), r = 2.0f * pan;
+  set_mixer_cell(chan, SEND_MAIN_L, volume * (l > 1.0f ? 1.0f : l));
+  set_mixer_cell(chan, SEND_MAIN_R, volume * (r > 1.0f ? 1.0f : r));
 }
 
 

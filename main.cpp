@@ -37,6 +37,7 @@ static bool tray_active = false;
 static bool force_quit = false;
 std::vector<float> levels = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 static std::vector <float> bar_value;
+static std::vector <float> pan_value;
 static std::vector <bool> phase_value;
 static std::vector <bool> master_bools = {false,false,false,false,false,false};
 
@@ -209,6 +210,8 @@ int main(int, char**)
 	if (_dev >= 0) {
 		driver_indicator = _dev;
 	    bar_value.clear();
+	    pan_value.clear();
+	    phase_value.clear();
 	}
 
 	// Main loop
@@ -300,6 +303,13 @@ int main(int, char**)
 					for (size_t i = 0; i < devices[driver_indicator].mic_inputs+devices[driver_indicator].digital_inputs; i++) {
 						bar_value.push_back(0.0f);
 						phase_value.push_back(false);
+						// Mics are mono sources and sit in the middle. The
+						// digital inputs arrive as stereo pairs, so they start
+						// panned apart, which is what keeps a pair's image
+						// intact instead of summing it to the centre.
+						bool digital = i >= (size_t)devices[driver_indicator].mic_inputs;
+						size_t d = i - devices[driver_indicator].mic_inputs;
+						pan_value.push_back(digital ? ((d % 2) ? 1.0f : 0.0f) : 0.5f);
 					}
 				}
 				// keep one line free underneath for the version string
@@ -320,12 +330,28 @@ int main(int, char**)
 				const float pad_top = 24.0f * main_scale;
 				const float pad_bottom = 32.0f * main_scale;
 				const float phase_h = 40.0f * main_scale;
+				const float pan_h = ImGui::GetFrameHeight();
 				const float fader_h = ImMax(ImGui::GetContentRegionAvail().y
-						- (ImGui::GetTextLineHeightWithSpacing() + pad_top + pad_bottom + phase_h
-						   + style.ItemSpacing.y * 4.0f),
+						- (ImGui::GetTextLineHeightWithSpacing() + pad_top + pad_bottom + phase_h + pan_h
+						   + style.ItemSpacing.y * 5.0f),
 					80.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
+				// Pan is the ratio between a channel's two main sends, which
+				// is exactly how the hardware matrix places it.
+				auto pan_slider = [&](int idx, const std::string& id) {
+					char fmt[16];
+					float p = pan_value[idx];
+					if (p < 0.499f)      snprintf(fmt, sizeof(fmt), "L%.0f", (0.5f - p) * 200.0f);
+					else if (p > 0.501f) snprintf(fmt, sizeof(fmt), "R%.0f", (p - 0.5f) * 200.0f);
+					else                 snprintf(fmt, sizeof(fmt), "C");
+					center_in_column(fader_w);
+					ImGui::SetNextItemWidth(fader_w);
+					if (ImGui::SliderFloat(("##pan" + id).c_str(), &pan_value[idx], 0.0f, 1.0f, fmt)) {
+						if (connected)
+							set_channel_volume(idx, bar_value[idx], pan_value[idx]);
+					}
+				};
 				int inputcounter = 0;
 				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
 					ImGui::BeginGroup();
@@ -335,8 +361,9 @@ int main(int, char**)
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
 					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vMic").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
-							set_channel_volume(i, bar_value[inputcounter]);
+							set_channel_volume(inputcounter, bar_value[inputcounter], pan_value[inputcounter]);
 					};
+					pan_slider(inputcounter, "Mic"+std::to_string(i));
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
 					//if (toggleButton("Dim", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);}};
@@ -352,8 +379,9 @@ int main(int, char**)
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
 					center_in_column(fader_w); if (ImGui::VFaderFloat((std::to_string(i)+"##vDigi").c_str(), ImVec2(fader_w, fader_h), &bar_value[inputcounter], 0.0f, 1.0f, "%.2f")) {
 						if (connected)
-							set_channel_volume(i, bar_value[inputcounter]);
+							set_channel_volume(inputcounter, bar_value[inputcounter], pan_value[inputcounter]);
 					};
+					pan_slider(inputcounter, "Digi"+std::to_string(i));
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
 					ImGui::PushFont(audiofont, 32);
 					if (toggleButton("###DigiPhase"+std::to_string(i), ImVec2(fader_w, phase_h), phase_value[inputcounter])) {if (connected) set_phase_state(inputcounter);};
@@ -473,6 +501,8 @@ int main(int, char**)
 	                if (ImGui::Selectable(devices[n].name.c_str(), is_selected)) {
 	                    driver_indicator = n;
 	                    bar_value.clear();
+	                    pan_value.clear();
+	                    phase_value.clear();
 	                }
 
 	                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)

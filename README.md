@@ -87,6 +87,12 @@ All done!
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
    * Desktop entry and icon, installed by `make install`
    * The interface now follows the window size instead of the size it started at
+   * Per channel pan, so a channel can be placed in the stereo image instead of
+     being summed to the centre. Digital inputs start panned apart as pairs
+   * Digital input faders now address their own matrix cells; they were writing
+     over the mic channels
+   * Headphone volume goes to the right entity
+   * Protocol notes in [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 ### MixiD, before the fork
 
