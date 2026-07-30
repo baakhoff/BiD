@@ -311,6 +311,13 @@ static void push_state_to_device()
 	for (int m = 0; m < MIXER_BUSES; m++)
 		for (size_t i = 0; i < bar_value[m].size(); i++)
 			set_channel_send(i, m, bar_value[m][i], pan_value[m][i]);
+	// The matrix can have more rows than the strips show - on the iD24 the
+	// last four are DAW returns 3..6 - and the hardware boots with cells
+	// open. Anything without a fader gets written to silence, or it plays
+	// into the buses and nothing in the app can lower it.
+	for (int i = (int)bar_value[0].size(); i < devices[driver_indicator].matrix_inputs; i++)
+		for (int s = 0; s < MIXER_SENDS; s++)
+			set_mixer_cell(i, s, 0.0f);
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
 	set_hp_volume(levels[1]);

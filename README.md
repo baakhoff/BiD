@@ -117,6 +117,11 @@ All done!
      link and the dials are saved per device under `~/.config/bid` on quit —
      including a logout or shutdown killing the tray — and restored on the
      next start, then pushed to the hardware on connect
+   * Cue A's routing pair is `0x23/0x24`, not `0x22/0x23`: the code block
+     has a gap, and an output sent to `0x22` plays a stuck full-level feed —
+     which had the phones' left ear ignoring every fader on Cue A
+   * Matrix rows without a fader (the iD24's DAW returns 3..6) are silenced
+     on connect, so the hardware's boot-time cue contents cannot bleed in
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

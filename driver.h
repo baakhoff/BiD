@@ -89,11 +89,13 @@ inline uint8_t route_code(int out, int source)
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
     case ROUTE_ALT:   return 0x1e + side;
-    // The block runs alt, cue B, cue A on the wire: with the matrix's cue A
-    // cells feeding it, 0x22 is the pair that moves. The decoded table
-    // assumed the opposite order, and editing one cue then changed outputs
-    // routed to the other.
-    case ROUTE_CUE_A: return 0x22 + side;
+    // The block is not packed evenly: alt, cue B, then a one-code gap, then
+    // cue A at 0x23/0x24 - which is what Monix's raw capture of the official
+    // app showed before their formula "corrected" it. 0x22 is not a usable
+    // source: an output sent there plays a stuck full-level feed that no
+    // fader and no dial controls, heard here as a phones left ear that
+    // ignored everything while the right ear tracked cue A's left cells.
+    case ROUTE_CUE_A: return 0x23 + side;
     case ROUTE_CUE_B: return 0x20 + side;
     case ROUTE_DAW:   return out; // output n plays DAW channel n
   }

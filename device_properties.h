@@ -17,6 +17,10 @@ struct device_properties {
 	// is the only one panned apart by default. -1 when we do not know, in
 	// which case every digital input starts centred.
 	int monitor_pair = -1;
+	// Rows in the mixer matrix, when known to be more than the channels the
+	// app shows. The hardware boots with cells open, so rows without a fader
+	// are written to silence on connect; 0 means no such extra rows.
+	int matrix_inputs = 0;
 };
 
 static std::vector<device_properties> devices;
@@ -80,6 +84,9 @@ void setup_devices()
 	// verified on hardware: digital inputs 9 and 10 are the pair that comes
 	// out of outputs 1 and 2, so they are the monitor left and right
 	iD24.monitor_pair = 8;
+	// 16 matrix rows: mics, eight digi, then DAW returns 1..6 - the last
+	// four have no fader here and get silenced on connect
+	iD24.matrix_inputs = 16;
 	devices.push_back(iD24);
 
 	struct device_properties iD44;

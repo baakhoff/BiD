@@ -42,6 +42,12 @@ while BiD is connected. See `find_control_interface()` in `driver.h`.
 
     cell = input * 6 + send
 
+The sixteen input rows on the iD24 are the two mics, the eight digital
+inputs, then DAW returns 1..6. The hardware boots with some cells open —
+a fresh device plays the computer into cue A before anything ever writes
+the matrix — so rows that have no fader in the app are written to silence
+on connect, or their boot-time contents keep playing into the buses.
+
 The six sends are three **stereo** buses, not six mono outputs:
 
     0,1 = Main L,R      2,3 = Cue A L,R      4,5 = Cue B L,R
@@ -60,16 +66,22 @@ phones — and 8..11 the digital one. The byte picks what that output plays:
     main mix   0x25 left half of the pair, 0x26 right
     alt        0x1e / 0x1f    the same feed for the alternate speakers
     cue B      0x20 / 0x21
-    cue A      0x22 / 0x23
+    (gap)      0x22           not a usable source, see below
+    cue A      0x23 / 0x24
     DAW n      the output's own index: a fixed full-level feed straight from
                the computer, outside the monitor section, so the volume knob
                does not apply to it
 
-The cue order comes from listening, not from the decode: Monix's table reads
-`0x20/0x21` as cue A, but with the matrix's cue A cells (2 and 3) feeding an
-output routed there, it is the `0x22` pair that carries them — editing one
-cue audibly changed outputs routed to the other. On the wire the block runs
-alt, cue B, cue A.
+The cue codes come from listening, not from the decode, and disagree with it
+twice. Monix's table reads `0x20/0x21` as cue A: on hardware that pair
+carries the matrix's cue *B* cells (4 and 5) — editing one cue audibly
+changed outputs routed to the other. And their formula places the second
+cue at `0x22/0x23`, but their own raw capture of the official app had
+recorded `0x23/0x24`, and the capture is right: `0x22` is not a usable
+source at all. An output sent to `0x22` plays a stuck full-level feed that
+no fader and no dial controls — with the phones on `0x22/0x23` the left ear
+ignored everything while the right ear tracked cue A's *left* cells. So the
+block runs alt, cue B, a one-code gap, cue A.
 
 `0x25/0x26` is not a raw tap of the main mix bus: it is the monitor
 section's output, so the volume knob, dim and cut ride along on every output
