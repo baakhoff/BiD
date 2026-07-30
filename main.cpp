@@ -115,6 +115,14 @@ static void window_close()
 	window = nullptr;
 }
 
+// A delayed tooltip on whatever was drawn last: for buttons whose label
+// is an abbreviation rather than a name.
+static void hover_tip(const char* text)
+{
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+		ImGui::SetTooltip("%s", text);
+}
+
 void TextCentered(const char* text) {
 	float avail = ImGui::GetContentRegionAvail().x;
 	float width = ImGui::CalcTextSize(text).x;
@@ -688,6 +696,7 @@ int main(int, char**)
 				if (chan_count > 0)
 					chan_w = ImClamp((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * (chan_count - 1)) / chan_count,
 						ImMax(fader_w, label_w) + 10.0f * main_scale, ImMax(96.0f * main_scale, label_w));
+				chan_w = (float)(int)chan_w; // whole pixels, or small pills render smeared
 				const float pill_w = 20.0f * main_scale, pill_h = 18.0f * main_scale;
 				const float knob_d = 34.0f * main_scale;
 				const float head_fix = 50.0f * main_scale;
@@ -699,7 +708,7 @@ int main(int, char**)
 				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 9.0f + style.ScrollbarSize + 8.0f * main_scale),
 					90.0f * main_scale);
 				// centre an item of the given width inside the current column
-				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f); };
+				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f)); };
 				// The meter ladder is drawn by hand beside the fader, lit from the
 				// last GET_MEM block and animated here - rising instantly, falling
 				// at a readable rate, with a slow peak-hold line.
@@ -748,6 +757,7 @@ int main(int, char**)
 						pan_value[current_mix][idx] = 0.5f;
 						moved = true;
 					}
+					hover_tip("Pan. Double click: centre");
 					if (moved && connected)
 						send_channel(idx, current_mix);
 					ImGui::PushFont(font, 13.0f);
@@ -779,23 +789,28 @@ int main(int, char**)
 					// mute, solo and phase share one pill row: red, yellow, amber
 					{
 						float ps = 3.0f * main_scale;
-						center_in_column(pill_w * 3.0f + ps * 2.0f);
+						float row_w = pill_w * 3.0f + ps * 2.0f;
+						float x0 = (float)(int)(ImGui::GetCursorPosX() + (chan_w - row_w) * 0.5f);
+						ImGui::SetCursorPosX(x0);
 						ImGui::PushFont(font, 13.0f);
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.92f, 0.30f, 0.28f, 1.00f));
 						if (toggleButton("M###Mu"+wid, ImVec2(pill_w, pill_h), mute_value[current_mix][idx])) { if (connected) send_channel(idx, current_mix); }
 						ImGui::PopStyleColor();
-						ImGui::SameLine(0.0f, ps);
+						hover_tip("Mute");
+						ImGui::SameLine(); ImGui::SetCursorPosX(x0 + pill_w + ps);
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.83f, 0.25f, 1.00f));
 						if (toggleButton("S###So"+wid, ImVec2(pill_w, pill_h), solo_value[current_mix][idx])) { if (connected) send_mix(current_mix); }
 						ImGui::PopStyleColor();
 						ImGui::PopFont();
-						ImGui::SameLine(0.0f, ps);
+						hover_tip("Solo: mutes everything that is not soloed");
+						ImGui::SameLine(); ImGui::SetCursorPosX(x0 + (pill_w + ps) * 2.0f);
 						ImGui::PushFont(audiofont, 14);
 						if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
 						ImGui::PopFont();
+						hover_tip("Phase invert");
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f);
+					ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f));
 					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
@@ -808,6 +823,8 @@ int main(int, char**)
 					// level under the cursor while dragging, double click to unity
 					if (ImGui::IsItemActive())
 						ImGui::SetTooltip("%d", (int)(bar_value[current_mix][idx] * 100.0f + 0.5f));
+					else
+						hover_tip("Double click: unity");
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 						bar_value[current_mix][idx] = 1.0f;
 						if (partner >= 0)
@@ -864,6 +881,7 @@ int main(int, char**)
 						}
 					}
 					ImGui::PopFont();
+					hover_tip("While lit the pair moves as one; unlink to trim each side");
 					ImGui::EndChild();
 					ImGui::PopStyleColor();
 					ImGui::SameLine();
@@ -914,6 +932,8 @@ int main(int, char**)
 					};
 					if (ImGui::IsItemActive())
 						ImGui::SetTooltip("%d", (int)(mix_master[current_mix] * 100.0f + 0.5f));
+					else
+						hover_tip("This mix's master: scales everything it sends. Double click: unity");
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 						mix_master[current_mix] = 1.0f;
 						if (connected) send_mix(current_mix);
@@ -1024,6 +1044,7 @@ int main(int, char**)
 					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
 				if (connected) set_speaker_volume(levels[0]);
 			}
+			hover_tip("Monitor level: follows the hardware knob");
 			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[0] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
 			ImGui::Dummy(ImVec2(0, knob_gap));
 			caps_label("PHONES", 15.0f);
@@ -1032,6 +1053,7 @@ int main(int, char**)
 					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
 				if (connected) set_hp_volume(levels[1]);
 			}
+			hover_tip("Headphone level");
 			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[1] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
 
 			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
@@ -1042,16 +1064,22 @@ int main(int, char**)
 			ImGui::BeginGroup();
 			grid_row();
 			if (toggleButton("DIM", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
+			hover_tip("Dim the monitor level");
 			ImGui::SameLine();
 			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
+			hover_tip("Switch to the alternate speakers");
 			ImGui::SameLine();
 			if (toggleButton("TALK", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
+			hover_tip("Talkback to the cues");
 			grid_row();
 			if (toggleButton("PHASE", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
+			hover_tip("Invert the monitors' phase");
 			ImGui::SameLine();
 			if (toggleButton("MONO", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
+			hover_tip("Sum the monitors to mono");
 			ImGui::SameLine();
 			if (toggleButton("CUT", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
+			hover_tip("Mute the monitors");
 			ImGui::EndGroup();
 			ImGui::PopFont();
 
