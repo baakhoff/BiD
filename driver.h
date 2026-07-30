@@ -255,6 +255,25 @@ int get_monitor_volume(float *out)
   return 1;
 }
 
+// Meters are a different request family: GET_MEM, bRequest 0x03, on the
+// mixer entity, answered as one block for everything rather than per
+// channel. Offset 0 is the input nodes: sixteen of them, two bytes each,
+// the first byte being the level. Whether this answers over the spare
+// interface rides on the same firmware quirk as everything else, so
+// callers probe it once on connect rather than assuming.
+int get_meters(uint8_t *out, int n)
+{
+  unsigned char buf[32];
+  int r = libusb_control_transfer(devh, 0xa1, 0x3, 0x0000, 0x3c00 | control_iface, buf, sizeof(buf), 50);
+  if (r != (int)sizeof(buf))
+    return 0;
+  if (n > 16)
+    n = 16;
+  for (int i = 0; i < n; i++)
+    out[i] = buf[i * 2];
+  return 1;
+}
+
 inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed

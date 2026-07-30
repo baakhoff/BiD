@@ -24,6 +24,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <csignal>
+#include <cmath>
 #include <sys/stat.h>
 #include "driver.h"
 #include "tray.h"
@@ -285,6 +286,16 @@ static void quit_signal(int) { got_signal = 1; }
 // polled forever.
 static bool hw_readback = false;
 
+// Metering, probed once on connect the same way. meter_raw holds the last
+// block read for the sixteen matrix input nodes; the display and peak
+// values are animated per frame - rise instantly, fall at a rate - which
+// is what makes a meter readable instead of a flicker.
+static bool meter_readback = false;
+static double last_meter = 0.0;
+static uint8_t meter_raw[16] = {};
+static float meter_disp[16] = {};
+static float meter_peak[16] = {};
+
 // Take the front panel's word for the monitor section: those controls exist on
 // the device itself and can be changed without the application ever knowing.
 static void sync_state_from_device()
@@ -488,6 +499,13 @@ int main(int, char**)
 			}
 			poll_idx = (poll_idx + 1) % TRAY_MASTER_COUNT;
 		}
+		// Meters run on their own clock, and unlike the controls they keep
+		// going while a fader is being dragged - that is exactly when they
+		// are being watched.
+		if (connected && meter_readback && glfwGetTime() - last_meter > 0.033) {
+			last_meter = glfwGetTime();
+			get_meters(meter_raw, 16);
+		}
 		if (want_hide) {
 			want_hide = false;
 			window_close();
@@ -629,18 +647,62 @@ int main(int, char**)
 							set_channel_send(idx, current_mix, bar_value[current_mix][idx], pan_value[current_mix][idx]);
 					}
 				};
+				// The strip cards and the meter ladders are drawn by hand:
+				// the card sits behind a whole strip, the meter beside the
+				// fader, lit from the last GET_MEM block and animated here -
+				// rising instantly, falling at a rate, with a slow peak line.
+				const ImU32 card_col = ImGui::GetColorU32(ImVec4(0.105f, 0.115f, 0.135f, 1.0f));
+				const float card_h = strip_h - style.ScrollbarSize - 2.0f;
+				const float meter_w = 7.0f * main_scale;
+				const float meter_gap = 3.0f * main_scale;
+				auto draw_meter = [&](ImVec2 p, float w, float h, int ch) {
+					ImDrawList* dl = ImGui::GetWindowDrawList();
+					float dt = ImGui::GetIO().DeltaTime;
+					float target = 0.0f;
+					if (connected && meter_readback && ch >= 0 && ch < 16)
+						target = sqrtf((float)meter_raw[ch] / 255.0f);
+					float &disp = meter_disp[ch];
+					float &peak = meter_peak[ch];
+					disp = target > disp ? target : ImMax(0.0f, disp - dt * 1.8f);
+					peak = disp > peak ? disp : ImMax(0.0f, peak - dt * 0.35f);
+					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(11, 12, 15, 255), 3.0f * main_scale);
+					int segs = (int)(h / (5.0f * main_scale));
+					if (segs < 8) segs = 8;
+					float seg_h = h / segs;
+					int lit = (int)(disp * segs + 0.5f);
+					for (int s = 0; s < segs; s++) {
+						float frac = (s + 1.0f) / segs;
+						bool on = s < lit;
+						ImU32 col;
+						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(58, 27, 25, 255);
+						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(56, 44, 24, 255);
+						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(26, 39, 30, 255);
+						dl->AddRectFilled(ImVec2(p.x + 1.5f, p.y + h - (s + 1) * seg_h + 1.0f),
+							ImVec2(p.x + w - 1.5f, p.y + h - s * seg_h - 1.0f), col, 1.0f);
+					}
+					if (peak > 0.02f) {
+						float py = p.y + h - peak * h;
+						dl->AddLine(ImVec2(p.x + 1.0f, py), ImVec2(p.x + w - 1.0f, py), IM_COL32(255, 255, 255, 150), 1.0f * main_scale);
+					}
+				};
 				// one whole strip: label, fader, pan, phase. idx is the
 				// matrix input the strip drives, wid keeps widget ids apart.
 				// A partner channel, when given, follows the fader so a
 				// linked stereo pair moves as one.
 				float link_row_y = 0.0f;
-				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first, int partner = -1) {
+				auto draw_strip = [&](int idx, const std::string& label, const std::string& wid, bool first, int partner = -1, bool card = true) {
+					if (card) {
+						ImVec2 tl = ImGui::GetCursorScreenPos();
+						ImGui::GetWindowDrawList()->AddRectFilled(tl, ImVec2(tl.x + chan_w, tl.y + card_h),
+							card_col, style.ChildRounding);
+					}
 					ImGui::BeginGroup();
 					if (first)
 						ImGui::SetCursorPosY(3 * main_scale);
 					center_in_column(ImGui::CalcTextSize(label.c_str()).x); ImGui::TextUnformatted(label.c_str());
 					ImGui::Dummy(ImVec2(chan_w,pad_top));
-					center_in_column(fader_w); if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f);
+					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
 						if (connected) {
@@ -649,6 +711,12 @@ int main(int, char**)
 								set_channel_send(partner, current_mix, bar_value[current_mix][partner], pan_value[current_mix][partner]);
 						}
 					};
+					ImGui::SameLine(0.0f, meter_gap);
+					{
+						ImVec2 mp = ImGui::GetCursorScreenPos();
+						ImGui::Dummy(ImVec2(meter_w, fader_h));
+						draw_meter(mp, meter_w, fader_h, idx);
+					}
 					pan_slider(idx, wid);
 					link_row_y = ImGui::GetCursorPosY();
 					ImGui::Dummy(ImVec2(0,pad_bottom)); center_in_column(fader_w);
@@ -665,14 +733,17 @@ int main(int, char**)
 				// stays put while the input strips scroll past next to it.
 				const int mon_idx = dev.monitor_pair >= 0 ? dev.mic_inputs + dev.monitor_pair : -1;
 				if (mon_idx >= 0) {
-					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h));
-					draw_strip(mon_idx,     "L Out", "OutL", true,  out_link[0] ? mon_idx + 1 : -1);
+					// the pair shares one panel, which is what says "these
+					// two belong together" before the link button does
+					ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.105f, 0.115f, 0.135f, 1.0f));
+					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h - style.ScrollbarSize));
+					draw_strip(mon_idx,     "L Out", "OutL", true,  out_link[0] ? mon_idx + 1 : -1, false);
 					ImGui::SameLine();
-					draw_strip(mon_idx + 1, "R Out", "OutR", false, out_link[0] ? mon_idx : -1);
+					draw_strip(mon_idx + 1, "R Out", "OutR", false, out_link[0] ? mon_idx : -1, false);
 					// the resting band under the pan sliders carries the link
 					// toggle: lit, the two faders move as one
-					ImGui::SetCursorPos(ImVec2(0, link_row_y + style.ItemSpacing.y * 0.5f));
-					if (toggleButton("Link", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, pad_bottom - style.ItemSpacing.y), out_link[0])) {
+					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x * 0.75f, link_row_y + style.ItemSpacing.y * 0.5f));
+					if (toggleButton("Link", ImVec2(chan_w * 2.0f - style.ItemSpacing.x * 0.5f, pad_bottom - style.ItemSpacing.y), out_link[0])) {
 						if (out_link[0]) {
 							// relinking snaps the right side back onto the left
 							bar_value[current_mix][mon_idx + 1] = bar_value[current_mix][mon_idx];
@@ -681,6 +752,7 @@ int main(int, char**)
 						}
 					}
 					ImGui::EndChild();
+					ImGui::PopStyleColor();
 					ImGui::SameLine();
 				}
 				ImGui::BeginChild("Faders", ImVec2(0, strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
@@ -700,7 +772,7 @@ int main(int, char**)
 
 				ImGui::EndChild();
 			}
-			ImGui::Text(VERSION_BID);
+			ImGui::TextDisabled(VERSION_BID);
 			//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::End();
 
@@ -735,6 +807,7 @@ int main(int, char**)
 						hw_readback = get_monitor_volume(&probe) != 0;
 						if (hw_readback)
 							sync_state_from_device();
+						meter_readback = get_meters(meter_raw, 16) != 0;
 						push_state_to_device();
 					}
 				}

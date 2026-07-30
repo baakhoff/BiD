@@ -124,6 +124,12 @@ All done!
      on connect, so the hardware's boot-time cue contents cannot bleed in
    * The Cut button joined the monitor row and the tray menu, synced with
      the front panel like the rest
+   * VU meters: every strip carries a segmented LED ladder with a peak-hold
+     line, fed 30 times a second by the mixer's block metering — probed once
+     on connect like the rest of the readback
+   * A new look: charcoal console theme with one warm amber accent running
+     through faders, knobs, tabs and lit buttons; card-style strips; the
+     output pair boxed as one panel
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
