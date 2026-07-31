@@ -53,6 +53,9 @@ static std::vector<bool> out_link = {true};
 // pair by pair - keyed by the pair's left channel. They start unlinked:
 // two mics are usually two sources, not one stereo one.
 static std::vector<bool> chan_link;
+// And any pair - inputs or the pinned outputs - can be summed to mono:
+// while lit, both sides hear both channels. Keyed like chan_link.
+static std::vector<bool> chan_mono;
 // One-shot: the mix tab the state file wants selected on the first frame.
 static int want_mix_tab = -1;
 // Per mix: a master trim over everything it sends, and mute/solo per
@@ -161,6 +164,23 @@ static void reset_mixes()
 		mix_master[m] = 1.0f;
 	}
 	chan_link.clear();
+	chan_mono.clear();
+}
+
+// Which pair does a channel belong to? Returns the pair's left channel,
+// or -1 for a channel with no partner. The digital inputs pair on even
+// boundaries, the same way the strips are drawn; the monitor pair is a
+// pair like any other.
+static int pair_left_of(int idx)
+{
+	const device_properties &dev = devices[driver_indicator];
+	if (idx < dev.mic_inputs)
+		return ((idx & ~1) + 1 < dev.mic_inputs) ? (idx & ~1) : -1;
+	int d = idx - dev.mic_inputs;
+	int base = d & ~1;
+	if (base + 1 >= dev.digital_inputs)
+		return -1;
+	return dev.mic_inputs + base;
 }
 
 // What actually reaches the matrix: the fader times the mix master, and
@@ -174,7 +194,11 @@ static void send_channel(int idx, int m)
 	if (idx < (int)mute_value[m].size()
 	    && (mute_value[m][idx] || (any_solo && !solo_value[m][idx])))
 		v = 0.0f;
-	set_channel_send(idx, m, v, pan_value[m][idx]);
+	float p = pan_value[m][idx];
+	int pl = pair_left_of(idx);
+	if (pl >= 0 && pl < (int)chan_mono.size() && chan_mono[pl])
+		p = 0.5f; // mono pair: centre both, so both sides hear both
+	set_channel_send(idx, m, v, p);
 }
 
 static void send_mix(int m)
@@ -248,6 +272,9 @@ static void save_state()
 	fprintf(f, "pairlinks");
 	for (size_t i = 0; i < n && i < chan_link.size(); i++)
 		fprintf(f, " %d", chan_link[i] ? 1 : 0);
+	fprintf(f, "\npairmono");
+	for (size_t i = 0; i < n && i < chan_mono.size(); i++)
+		fprintf(f, " %d", chan_mono[i] ? 1 : 0);
 	fprintf(f, "\n");
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
@@ -340,6 +367,12 @@ static void load_state()
 		int v = 0;
 		if (fscanf(f, "%d", &v) != 1) extra2 = false; else pl.push_back(v != 0);
 	}
+	bool extra3 = extra2 && fscanf(f, "%15s", key) == 1 && strcmp(key, "pairmono") == 0;
+	std::vector<char> pm;
+	for (long i = 0; extra3 && i < n; i++) {
+		int v = 0;
+		if (fscanf(f, "%d", &v) != 1) extra3 = false; else pm.push_back(v != 0);
+	}
 	fclose(f);
 	if (!ok)
 		return;
@@ -370,6 +403,10 @@ static void load_state()
 		chan_link.assign(pl.begin(), pl.end());
 	else
 		chan_link.assign(n, false);
+	if (extra3 && (long)pm.size() == n)
+		chan_mono.assign(pm.begin(), pm.end());
+	else
+		chan_mono.assign(n, false);
 }
 
 // The sample rate is negotiated by the kernel driver and the applications,
@@ -755,6 +792,7 @@ int main(int, char**)
 							 || (int)i - dev_init.mic_inputs == dev_init.monitor_pair + 1);
 						phase_value.push_back(false);
 						chan_link.push_back(false);
+						chan_mono.push_back(false);
 						// Everything starts centred except the digital pair
 						// that feeds the monitor outputs, which is the one
 						// place we know is stereo: panning it apart is what
@@ -864,7 +902,13 @@ int main(int, char**)
 					if (pv < 0.499f)      snprintf(fmt, sizeof(fmt), "L%.0f", (0.5f - pv) * 200.0f);
 					else if (pv > 0.501f) snprintf(fmt, sizeof(fmt), "R%.0f", (pv - 0.5f) * 200.0f);
 					else                 snprintf(fmt, sizeof(fmt), "C");
+					int plm = pair_left_of(idx);
+					bool mono_on = plm >= 0 && plm < (int)chan_mono.size() && chan_mono[plm];
+					if (mono_on)
+						snprintf(fmt, sizeof(fmt), "MONO");
 					center_in_column(knob_d);
+					if (mono_on)
+						ImGui::BeginDisabled();
 					bool moved = ImGuiKnobs::Knob(("##pan" + wid).c_str(), &pan_value[current_mix][idx], 0.0f, 1.0f, 0.004f, "",
 						ImGuiKnobVariant_WiperOnly, knob_d, ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput);
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -872,6 +916,8 @@ int main(int, char**)
 						moved = true;
 					}
 					hover_tip("Pan. Double click: centre");
+					if (mono_on)
+						ImGui::EndDisabled();
 					if (moved && connected)
 						send_channel(idx, current_mix);
 					ImGui::PushFont(font, 13.0f);
@@ -1001,14 +1047,26 @@ int main(int, char**)
 					ImGui::SameLine();
 					draw_strip(ri, rl, chip, wr, linked ? li : -1, true);
 					float lh = ImClamp(strip_h - style.ScrollbarSize - link_row_y - 8.0f * main_scale, 14.0f * main_scale, 24.0f * main_scale);
+					float bw = chan_w * 2.0f + style.ItemSpacing.x - 8.0f * main_scale;
+					float hw = (float)(int)((bw - 4.0f * main_scale) * 0.5f);
 					ImGui::SetCursorPos(ImVec2(pp.x + 4.0f * main_scale, link_row_y + 3.0f * main_scale));
 					ImGui::PushFont(font, 13.0f);
-					if (toggleButton("LINK###PLnk" + wl, ImVec2(chan_w * 2.0f + style.ItemSpacing.x - 8.0f * main_scale, lh), chan_link[li])) {
+					if (toggleButton("LINK###PLnk" + wl, ImVec2(hw, lh), chan_link[li])) {
 						if (chan_link[li])
 							relink_snap(li, ri);
 					}
-					ImGui::PopFont();
 					hover_tip("While lit the pair moves as one: levels, mute and solo.\nPan stays per side. Unlink to trim each side.");
+					ImGui::SameLine();
+					ImGui::SetCursorPosX(pp.x + 4.0f * main_scale + hw + 4.0f * main_scale);
+					if (toggleButton("MONO###PMono" + wl, ImVec2(bw - hw - 4.0f * main_scale, lh), chan_mono[li])) {
+						if (connected)
+							for (int m = 0; m < MIXER_BUSES; m++) {
+								send_channel(li, m);
+								send_channel(ri, m);
+							}
+					}
+					hover_tip("Sum the pair to mono: both sides hear both channels");
+					ImGui::PopFont();
 					ImGui::EndGroup();
 				};
 
@@ -1029,14 +1087,26 @@ int main(int, char**)
 					ImGui::SameLine();
 					draw_strip(mon_idx + 1, "OUT R", chip_out, "OutR", out_link[0] ? mon_idx : -1, false);
 					float link_h = ImClamp(strip_h - link_row_y - 6.0f * main_scale, 16.0f * main_scale, 26.0f * main_scale);
+					float bar_w = chan_w * 2.0f - style.ItemSpacing.x;
+					float half_w = (float)(int)((bar_w - 4.0f * main_scale) * 0.5f);
 					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x, link_row_y + 3.0f * main_scale));
 					ImGui::PushFont(font, 14.0f);
-					if (toggleButton("LINK", ImVec2(chan_w * 2.0f - style.ItemSpacing.x, link_h), out_link[0])) {
+					if (toggleButton("LINK", ImVec2(half_w, link_h), out_link[0])) {
 						if (out_link[0])
 							relink_snap(mon_idx, mon_idx + 1);
 					}
-					ImGui::PopFont();
 					hover_tip("While lit the pair moves as one: levels, mute and solo.\nPan stays per side. Unlink to trim each side.");
+					ImGui::SameLine();
+					ImGui::SetCursorPosX(style.ItemSpacing.x + half_w + 4.0f * main_scale);
+					if (toggleButton("MONO###OutMono", ImVec2(bar_w - half_w - 4.0f * main_scale, link_h), chan_mono[mon_idx])) {
+						if (connected)
+							for (int m = 0; m < MIXER_BUSES; m++) {
+								send_channel(mon_idx, m);
+								send_channel(mon_idx + 1, m);
+							}
+					}
+					hover_tip("Sum the pair to mono: both sides hear both channels");
+					ImGui::PopFont();
 					ImGui::EndChild();
 					ImGui::PopStyleColor();
 					ImGui::SameLine();

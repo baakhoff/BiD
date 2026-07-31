@@ -190,6 +190,9 @@ physical knob alone.
      file, following the same rules as the output pair
    * The sample rate the kernel negotiated shows under the connection
      status, read from ALSA's procfs rather than asked of the device
+   * Any pair — inputs or the outputs — can be summed to mono from the
+     MONO half of its pair bar: both sides hear both channels, the pan
+     pots rest while it is lit, and the choice is remembered
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
