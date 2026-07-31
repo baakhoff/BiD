@@ -15,8 +15,9 @@ Unlike the original, BiD talks to the interface over its spare DFU interface rat
 * Devices are detected by USB id; the iD24 is the one verified on hardware, the rest are inherited from the original project's support list
   * If a new device gets released, please open an [Issue](https://github.com/baakhoff/BiD/issues) with your USB id and input/output counts
 * The protocol is mostly figured out, just needs verification/testing
-  * Reading state back from the interfaces is still missing, so the controls start at zero rather than at what the hardware is doing
-  * Things like VU meters and some switches/modes have yet to be implemented
+  * Only the monitor section can be read back; the rest of the hardware is
+    write-only, so BiD remembers its own state per device and pushes it on
+    connect instead
 * Linux is the target; the tray and desktop integration are Linux only
 
 ## Compilation
@@ -82,6 +83,39 @@ Then either reboot or use the following command to reload the udev rules for the
 udevadm control --reload-rules && udevadm trigger --attr-match=idVendor=2708
 ```
 All done!
+
+## Troubleshooting
+
+A problem with an iD interface on Linux lives in one of three layers: the
+hardware and its cabling, the kernel/PipeWire audio stack, or BiD itself.
+Chasing a symptom through the wrong layer eats evenings — a stereo
+imbalance was once pursued here through every software layer before turning
+out to be a badly seated speaker cable.
+
+| Symptom | Layer | Fix |
+| ------- | ----- | --- |
+| One side quieter at any volume below 100% (iD14 MkII) | Firmware + PipeWire | The firmware ignores volume writes on the left half of `Speaker Playback Volume`, so hardware volume moves tilt the image right. Keep PipeWire off the hardware volume (rule below) and let BiD or the knob own the level. Documented in [Audientid14-linux-fix](https://github.com/grechmarlon/Audientid14-linux-fix) |
+| Only surround profiles offered for a stereo interface | Kernel + PipeWire | The USB descriptors declare no channel positions, so a surround layout gets invented. Choose the `Pro Audio` profile, which exposes the raw channels without guessing |
+| Mixer stops responding after suspend or a replug | BiD | Fixed in 0.2.1: BiD notices the stale device, shows an amber `reconnecting` dot and comes back on its own. On older builds, Disconnect and Connect again |
+| ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
+| One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
+
+To keep PipeWire away from the hardware volume (the iD14 MkII fix; harmless
+on the other models), drop a WirePlumber rule into
+`~/.config/wireplumber/wireplumber.conf.d/50-audient-soft-mixer.conf`:
+
+```
+monitor.alsa.rules = [
+  {
+    matches = [ { node.name = "~alsa_output.usb-Audient.*" } ]
+    actions = { update-props = { api.alsa.soft-mixer = true } }
+  }
+]
+```
+
+then restart it with `systemctl --user restart wireplumber`. Desktop volume
+becomes a software gain, and the hardware level belongs to BiD and the
+physical knob alone.
 
 ## Authors
 
@@ -151,6 +185,11 @@ All done!
      pulled cable — turns into a clean offline and a quiet retry every two
      seconds; when the interface returns, BiD reconnects and pushes the
      whole mixer back on its own. The status dot burns amber while it hunts
+   * Input strips link in twos as well — MIC 1+2, and the digital inputs
+     pair by pair — each with its own LINK bar remembered in the state
+     file, following the same rules as the output pair
+   * The sample rate the kernel negotiated shows under the connection
+     status, read from ALSA's procfs rather than asked of the device
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
