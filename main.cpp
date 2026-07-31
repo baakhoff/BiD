@@ -49,6 +49,10 @@ static int current_mix = 0;
 // The pinned output pair moves as one while Link is lit. A vector only
 // because toggleButton takes a vector<bool> reference.
 static std::vector<bool> out_link = {true};
+// The input strips link in twos as well - MIC 1+2, and the digital inputs
+// pair by pair - keyed by the pair's left channel. They start unlinked:
+// two mics are usually two sources, not one stereo one.
+static std::vector<bool> chan_link;
 // One-shot: the mix tab the state file wants selected on the first frame.
 static int want_mix_tab = -1;
 // Per mix: a master trim over everything it sends, and mute/solo per
@@ -156,6 +160,7 @@ static void reset_mixes()
 		solo_value[m].clear();
 		mix_master[m] = 1.0f;
 	}
+	chan_link.clear();
 }
 
 // What actually reaches the matrix: the fader times the mix master, and
@@ -240,6 +245,10 @@ static void save_state()
 			fprintf(f, " %d", solo_value[m][i] ? 1 : 0);
 		fprintf(f, "\n");
 	}
+	fprintf(f, "pairlinks");
+	for (size_t i = 0; i < n && i < chan_link.size(); i++)
+		fprintf(f, " %d", chan_link[i] ? 1 : 0);
+	fprintf(f, "\n");
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -324,6 +333,13 @@ static void load_state()
 			if (fscanf(f, "%d", &v) != 1) extra = false; else so[m].push_back(v != 0);
 		}
 	}
+	// the input pair links arrived later still; a file without them is valid
+	bool extra2 = extra && fscanf(f, "%15s", key) == 1 && strcmp(key, "pairlinks") == 0;
+	std::vector<char> pl;
+	for (long i = 0; extra2 && i < n; i++) {
+		int v = 0;
+		if (fscanf(f, "%d", &v) != 1) extra2 = false; else pl.push_back(v != 0);
+	}
 	fclose(f);
 	if (!ok)
 		return;
@@ -350,6 +366,10 @@ static void load_state()
 		else
 			solo_value[m].assign(n, false);
 	}
+	if (extra2 && (long)pl.size() == n)
+		chan_link.assign(pl.begin(), pl.end());
+	else
+		chan_link.assign(n, false);
 }
 
 // A tray resident dies to SIGTERM at logout or shutdown; catching it turns
@@ -685,6 +705,7 @@ int main(int, char**)
 							&& ((int)i - dev_init.mic_inputs == dev_init.monitor_pair
 							 || (int)i - dev_init.mic_inputs == dev_init.monitor_pair + 1);
 						phase_value.push_back(false);
+						chan_link.push_back(false);
 						// Everything starts centred except the digital pair
 						// that feeds the monitor outputs, which is the one
 						// place we know is stereo: panning it apart is what
@@ -909,6 +930,39 @@ int main(int, char**)
 					}
 				};
 
+				// relinking snaps the right side back onto the left - in every mix,
+				// not just the tab on screen, and the mute and solo state come along;
+				// a lit LINK must never hide a split pair
+				auto relink_snap = [&](int l, int r) {
+					for (int m = 0; m < MIXER_BUSES; m++) {
+						bar_value[m][r] = bar_value[m][l];
+						mute_value[m][r] = mute_value[m][l];
+						solo_value[m][r] = solo_value[m][l];
+						if (connected)
+							send_mix(m);
+					}
+				};
+				// Two strips with one LINK bar under them: an input pair gets the same
+				// treatment as the pinned outputs.
+				auto draw_pair = [&](int li, int ri, const std::string& ll, const std::string& rl, ImU32 chip, const std::string& wl, const std::string& wr) {
+					ImVec2 pp = ImGui::GetCursorPos();
+					ImGui::BeginGroup();
+					bool linked = chan_link[li];
+					draw_strip(li, ll, chip, wl, linked ? ri : -1, false);
+					ImGui::SameLine();
+					draw_strip(ri, rl, chip, wr, linked ? li : -1, true);
+					float lh = ImClamp(strip_h - style.ScrollbarSize - link_row_y - 8.0f * main_scale, 14.0f * main_scale, 24.0f * main_scale);
+					ImGui::SetCursorPos(ImVec2(pp.x + 4.0f * main_scale, link_row_y + 3.0f * main_scale));
+					ImGui::PushFont(font, 13.0f);
+					if (toggleButton("LINK###PLnk" + wl, ImVec2(chan_w * 2.0f + style.ItemSpacing.x - 8.0f * main_scale, lh), chan_link[li])) {
+						if (chan_link[li])
+							relink_snap(li, ri);
+					}
+					ImGui::PopFont();
+					hover_tip("While lit the pair moves as one: levels, mute and solo.\nPan stays per side. Unlink to trim each side.");
+					ImGui::EndGroup();
+				};
+
 				const device_properties &dev = devices[driver_indicator];
 				// type colours: mics amber, digital slate, the DAW return pair mint
 				const ImU32 chip_mic  = IM_COL32(255, 163, 41, 235);
@@ -929,18 +983,8 @@ int main(int, char**)
 					ImGui::SetCursorPos(ImVec2(style.ItemSpacing.x, link_row_y + 3.0f * main_scale));
 					ImGui::PushFont(font, 14.0f);
 					if (toggleButton("LINK", ImVec2(chan_w * 2.0f - style.ItemSpacing.x, link_h), out_link[0])) {
-						if (out_link[0]) {
-							// relinking snaps the right side back onto the left - in every
-							// mix, not just the tab on screen, and the mute and solo state
-							// come along; a lit LINK must never hide a split pair
-							for (int m = 0; m < MIXER_BUSES; m++) {
-								bar_value[m][mon_idx + 1] = bar_value[m][mon_idx];
-								mute_value[m][mon_idx + 1] = mute_value[m][mon_idx];
-								solo_value[m][mon_idx + 1] = solo_value[m][mon_idx];
-								if (connected)
-									send_mix(m);
-							}
-						}
+						if (out_link[0])
+							relink_snap(mon_idx, mon_idx + 1);
 					}
 					ImGui::PopFont();
 					hover_tip("While lit the pair moves as one: levels, mute and solo.\nPan stays per side. Unlink to trim each side.");
@@ -951,17 +995,31 @@ int main(int, char**)
 				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.105f, 0.115f, 0.135f, 1.00f));
 				ImGui::BeginChild("Faders", ImVec2(-(chan_w + style.ItemSpacing.x), strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
 				bool first = true;
-				for (size_t i = 0; i < (devices[driver_indicator].mic_inputs); i++) {
-					if (!first) ImGui::SameLine();
-					draw_strip(i, "MIC " + std::to_string(i + 1), chip_mic, "Mic" + std::to_string(i));
-					first = false;
+				auto next_slot = [&]() { if (!first) ImGui::SameLine(); first = false; };
+				for (int i = 0; i < dev.mic_inputs; ) {
+					next_slot();
+					if (i + 1 < dev.mic_inputs) {
+						draw_pair(i, i + 1, "MIC " + std::to_string(i + 1), "MIC " + std::to_string(i + 2), chip_mic, "Mic" + std::to_string(i), "Mic" + std::to_string(i + 1));
+						i += 2;
+					} else {
+						draw_strip(i, "MIC " + std::to_string(i + 1), chip_mic, "Mic" + std::to_string(i));
+						i++;
+					}
 				}
-				for (size_t i = 0; i < (devices[driver_indicator].digital_inputs); i++) {
-					if (dev.monitor_pair >= 0 && ((int)i == dev.monitor_pair || (int)i == dev.monitor_pair + 1))
-						continue; // pinned on the left as OUT L / OUT R
-					if (!first) ImGui::SameLine();
-					draw_strip(dev.mic_inputs + i, "DIGI " + std::to_string(i + 1), chip_digi, "Digi" + std::to_string(i));
-					first = false;
+				for (int i = 0; i < dev.digital_inputs; ) {
+					if (dev.monitor_pair >= 0 && (i == dev.monitor_pair || i == dev.monitor_pair + 1)) {
+						i++; // pinned on the left as OUT L / OUT R
+						continue;
+					}
+					bool whole_pair = i + 1 < dev.digital_inputs && !(dev.monitor_pair >= 0 && i + 1 == dev.monitor_pair);
+					next_slot();
+					if (whole_pair) {
+						draw_pair(dev.mic_inputs + i, dev.mic_inputs + i + 1, "DIGI " + std::to_string(i + 1), "DIGI " + std::to_string(i + 2), chip_digi, "Digi" + std::to_string(i), "Digi" + std::to_string(i + 1));
+						i += 2;
+					} else {
+						draw_strip(dev.mic_inputs + i, "DIGI " + std::to_string(i + 1), chip_digi, "Digi" + std::to_string(i));
+						i++;
+					}
 				}
 				ImGui::EndChild();
 				ImGui::PopStyleColor();
