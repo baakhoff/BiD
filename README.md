@@ -142,6 +142,9 @@ All done!
      remembered in the state file
    * Faders tooltip their level while dragging and double-click to unity;
      the Driver Select and Routing windows fix themselves at content size
+   * Every abbreviated button explains itself on a hover pause, and button
+     labels are centred on the pixels they actually ink — the typeface rides
+     low in its line box, which made small buttons read as off-centre
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
