@@ -27,6 +27,8 @@
 #include <cmath>
 #include <algorithm>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <cctype>
 #include "driver.h"
 #include "tray.h"
 
@@ -243,12 +245,13 @@ static std::string state_path()
 	return base + name;
 }
 
-static void save_state()
+static void save_state_to(const std::string& path)
 {
-	std::string path = state_path();
 	if (path.empty() || bar_value[0].empty())
 		return;
-	mkdir(path.substr(0, path.rfind('/')).c_str(), 0755);
+	std::string dir = path.substr(0, path.rfind('/'));
+	mkdir(dir.substr(0, dir.rfind('/')).c_str(), 0755);
+	mkdir(dir.c_str(), 0755);
 	std::string tmp = path + ".tmp";
 	FILE *f = fopen(tmp.c_str(), "w");
 	if (!f)
@@ -298,16 +301,17 @@ static void save_state()
 	rename(tmp.c_str(), path.c_str());
 }
 
+static void save_state() { save_state_to(state_path()); }
+
 // All or nothing: a file that does not parse, or that was written for a
 // different channel count, is ignored and the defaults stand.
-static void load_state()
+static bool load_state_from(const std::string& path)
 {
-	std::string path = state_path();
 	if (path.empty())
-		return;
+		return false;
 	FILE *f = fopen(path.c_str(), "r");
 	if (!f)
-		return;
+		return false;
 	const device_properties &dev = devices[driver_indicator];
 	const long want = dev.mic_inputs + dev.digital_inputs;
 	char key[16] = {0};
@@ -409,7 +413,7 @@ static void load_state()
 	}
 	fclose(f);
 	if (!ok)
-		return;
+		return false;
 	for (int m = 0; m < MIXER_BUSES; m++) {
 		bar_value[m] = lv[m];
 		pan_value[m] = pv[m];
@@ -443,6 +447,61 @@ static void load_state()
 		chan_mono.assign(n, false);
 	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
 	chan_name.assign(nm.begin(), nm.end());
+	return true;
+}
+
+static void load_state() { load_state_from(state_path()); }
+
+// Presets are the same file format under a chosen name, per device, in
+// the presets folder next to the state file. Recalling one is a load
+// plus the same push a connect does.
+static std::string presets_dir()
+{
+	std::string p = state_path();
+	if (p.empty())
+		return "";
+	return p.substr(0, p.rfind('/')) + "/presets";
+}
+
+static std::string preset_path(const std::string& name)
+{
+	char pfx[24];
+	snprintf(pfx, sizeof(pfx), "/preset-%04x-", devices[driver_indicator].usb_id);
+	return presets_dir() + pfx + name + ".conf";
+}
+
+// keep names filesystem-tame: letters, digits, space, dash, underscore
+static std::string sanitize_preset(const char* raw)
+{
+	std::string out;
+	for (const char* c = raw; *c; c++)
+		if (isalnum((unsigned char)*c) || *c == ' ' || *c == '-' || *c == '_')
+			out += *c;
+	while (!out.empty() && out.back() == ' ')
+		out.pop_back();
+	while (!out.empty() && out.front() == ' ')
+		out.erase(out.begin());
+	return out;
+}
+
+static void list_presets(std::vector<std::string>& out)
+{
+	out.clear();
+	std::string dir = presets_dir();
+	char pfx[24];
+	snprintf(pfx, sizeof(pfx), "preset-%04x-", devices[driver_indicator].usb_id);
+	DIR *d = opendir(dir.c_str());
+	if (!d)
+		return;
+	struct dirent *e;
+	size_t pl = strlen(pfx);
+	while ((e = readdir(d)) != NULL) {
+		std::string fn = e->d_name;
+		if (fn.size() > pl + 5 && fn.rfind(pfx, 0) == 0 && fn.substr(fn.size() - 5) == ".conf")
+			out.push_back(fn.substr(pl, fn.size() - pl - 5));
+	}
+	closedir(d);
+	std::sort(out.begin(), out.end());
 }
 
 // Which ALSA card is this device? procfs, matched by USB id.
@@ -798,6 +857,7 @@ int main(int, char**)
 
 	// Our state
 	bool show_routing = false;
+	static bool want_preset_save = false;
 	bool show_another_window = false;
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -968,8 +1028,56 @@ int main(int, char**)
 					if (ImGui::MenuItem("Quit")) {force_quit = true; glfwSetWindowShouldClose(window, GLFW_TRUE);};
 					ImGui::EndMenu();
 				}
+				if (ImGui::BeginMenu("Presets"))
+				{
+					static std::vector<std::string> pnames;
+					list_presets(pnames);
+					if (pnames.empty())
+						ImGui::MenuItem("(none yet)", NULL, false, false);
+					for (size_t pi = 0; pi < pnames.size(); pi++)
+						if (ImGui::MenuItem(pnames[pi].c_str())) {
+							// a recall is a load plus the push a connect does
+							if (load_state_from(preset_path(pnames[pi])) && connected)
+								push_state_to_device();
+						}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Save current as..."))
+						want_preset_save = true;
+					if (!pnames.empty() && ImGui::BeginMenu("Delete")) {
+						for (size_t pi = 0; pi < pnames.size(); pi++)
+							if (ImGui::MenuItem(pnames[pi].c_str()))
+								remove(preset_path(pnames[pi]).c_str());
+						ImGui::EndMenu();
+					}
+					ImGui::EndMenu();
+				}
 
 				ImGui::EndMenuBar();
+			}
+			if (want_preset_save) {
+				ImGui::OpenPopup("Save preset");
+				want_preset_save = false;
+			}
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			if (ImGui::BeginPopupModal("Save preset", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+				static char pname[32] = "";
+				ImGui::TextDisabled("The whole desk, under a name.");
+				ImGui::SetNextItemWidth(220.0f * main_scale);
+				bool go = ImGui::InputText("##pname", pname, sizeof(pname), ImGuiInputTextFlags_EnterReturnsTrue);
+				if (ImGui::Button("Save", ImVec2(104.0f * main_scale, 0)) || go) {
+					std::string nm = sanitize_preset(pname);
+					if (!nm.empty()) {
+						save_state_to(preset_path(nm));
+						pname[0] = 0;
+						ImGui::CloseCurrentPopup();
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(104.0f * main_scale, 0))) {
+					pname[0] = 0;
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
 			}
 			// Main controls. They live offline too - the state file feeds them
 			// and connect pushes them - so no hardware is not a blank window.
