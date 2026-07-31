@@ -642,11 +642,9 @@ int main(int, char**)
 
 				ImGui::EndMenuBar();
 			}
-			//TODO: Remove temp
-			//TEMP "OFFLINE" UI
-			bool test = true;
-
-			if (connected || test) { //Main controls
+			// Main controls. They live offline too - the state file feeds them
+			// and connect pushes them - so no hardware is not a blank window.
+			{
 				if (bar_value[0].size() == 0) {
 					const device_properties &dev_init = devices[driver_indicator];
 					for (size_t i = 0; i < devices[driver_indicator].mic_inputs+devices[driver_indicator].digital_inputs; i++) {
@@ -726,8 +724,13 @@ int main(int, char**)
 					float target = 0.0f;
 					if (connected && meter_readback && ch >= 0 && ch < 16)
 						target = sqrtf((float)meter_raw[ch] / 255.0f);
-					float &disp = meter_disp[ch];
-					float &peak = meter_peak[ch];
+					// the block carries sixteen nodes; strips past them - the larger
+					// iD models - keep a dark ladder instead of walking off the end
+					// of the state arrays
+					float dead = 0.0f, dead_peak = 0.0f;
+					const bool tracked = ch >= 0 && ch < 16;
+					float &disp = tracked ? meter_disp[ch] : dead;
+					float &peak = tracked ? meter_peak[ch] : dead_peak;
 					disp = target > disp ? target : ImMax(0.0f, disp - dt * 1.8f);
 					peak = disp > peak ? disp : ImMax(0.0f, peak - dt * 0.35f);
 					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(9, 10, 13, 255), 2.5f * main_scale);
