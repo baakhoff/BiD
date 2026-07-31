@@ -1159,6 +1159,13 @@ int main(int, char**)
 	            {
 	                const bool is_selected = (driver_indicator == n);
 	                if (ImGui::Selectable(devices[n].name.c_str(), is_selected)) {
+	                    if (connected) {
+	                    	// the handle still points at the outgoing device: left
+	                    	// connected, every write would land on the wrong box
+	                    	connected = false;
+	                    	driver_shutdown();
+	                    }
+	                    reconnect_pending = false; // and stop hunting for it
 	                    save_state(); // keep the outgoing device's edits
 	                    driver_indicator = n;
 	                    reset_mixes();
