@@ -62,6 +62,13 @@ This needs a StatusNotifier tray, which KDE Plasma, Cinnamon, Budgie, XFCE and L
 GNOME needs an appindicator extension for it, and compositors such as Sway or Hyprland need a panel that implements a tray, for example Waybar.
 Without one, or when built without libsystemd/basu, BiD simply quits on close.
 
+### ScrollControl
+
+The iD button's ScrollControl works on Linux out of the box: the interface's
+knob is a USB HID device the kernel binds as a mouse, so press the iD
+button, hover the pointer over anything scrollable, and turn the encoder.
+No driver and no configuration involved — confirmed on the iD24.
+
 ### udev rules
 
 By default the audio interface is grabbed by the kernel module, so we need to setup udev rules to avoid needing root permissions when opening BiD.
@@ -210,6 +217,12 @@ physical knob alone.
      or right-only and says so on its face, and DIM and ALT carry sliders
      for how far Dim drops and the alternate speakers' trim — all read
      from the device on connect, hidden when it does not answer
+   * The strips can be named for what they carry: double click a name,
+     type, Enter. Emptying it brings the stock label back, and the names
+     live in the state file with everything else
+   * Named presets: the whole desk — mixes, routing, links, names — saved
+     under a name from the Presets menu, recalled with one click and
+     pushed to the hardware on the spot, deleted from the same menu
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
