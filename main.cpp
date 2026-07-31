@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <csignal>
 #include <cmath>
+#include <algorithm>
 #include <sys/stat.h>
 #include "driver.h"
 #include "tray.h"
@@ -446,6 +447,69 @@ static int read_sample_rate(uint16_t usb_id)
 	return 0;
 }
 
+// The rates the card offers, parsed from the same stream file: the union
+// of every "Rates:" line, sorted. Feeds the pin-the-rate menu.
+static void read_supported_rates(uint16_t usb_id, std::vector<int>& out)
+{
+	out.clear();
+	char path[64], line[256];
+	for (int card = 0; card < 32; card++) {
+		snprintf(path, sizeof(path), "/proc/asound/card%d/usbid", card);
+		FILE *f = fopen(path, "r");
+		if (!f)
+			continue;
+		unsigned vid = 0, pid = 0;
+		int m = fscanf(f, "%x:%x", &vid, &pid);
+		fclose(f);
+		if (m != 2 || vid != 0x2708 || pid != usb_id)
+			continue;
+		snprintf(path, sizeof(path), "/proc/asound/card%d/stream0", card);
+		f = fopen(path, "r");
+		if (!f)
+			return;
+		while (fgets(line, sizeof(line), f)) {
+			const char *hit = strstr(line, "Rates: ");
+			if (!hit)
+				continue;
+			for (const char *c = hit + 7; *c; ) {
+				int r = 0;
+				if (sscanf(c, "%d", &r) == 1 && r >= 8000
+				    && std::find(out.begin(), out.end(), r) == out.end())
+					out.push_back(r);
+				while (*c && *c != ',')
+					c++;
+				if (*c == ',')
+					c++;
+			}
+		}
+		fclose(f);
+		std::sort(out.begin(), out.end());
+		return;
+	}
+}
+
+// Pinning the rate is PipeWire's decision, not the device's: the graph
+// owns the clock and the hardware follows it. pw-metadata is the same
+// knob the PipeWire tools use; zero unpins, and the graph goes back to
+// following whatever the applications ask for.
+static void force_graph_rate(int hz)
+{
+	char cmd[128];
+	snprintf(cmd, sizeof(cmd), "pw-metadata -n settings 0 clock.force-rate %d >/dev/null 2>&1", hz);
+	if (system(cmd)) {}
+}
+
+// A short kHz label: 48000 reads "48 kHz", 44100 reads "44.1 kHz".
+static void khz_label(char *out, size_t n, int hz)
+{
+	if (hz <= 0)
+		snprintf(out, n, "-- kHz");
+	else if (hz % 1000 == 0)
+		snprintf(out, n, "%d kHz", hz / 1000);
+	else
+		snprintf(out, n, "%.1f kHz", hz / 1000.0);
+}
+
 // A tray resident dies to SIGTERM at logout or shutdown; catching it turns
 // that into a normal quit, so the state still gets saved on the way out.
 static volatile sig_atomic_t got_signal = 0;
@@ -685,9 +749,16 @@ int main(int, char**)
 		// the rate costs two file reads, so once a second is plenty
 		static double last_rate = 0.0;
 		static int sample_rate = 0;
+		static std::vector<int> card_rates;
+		static int rates_dev = -1;
 		if (glfwGetTime() - last_rate > 1.0) {
 			last_rate = glfwGetTime();
 			sample_rate = read_sample_rate(devices[driver_indicator].usb_id);
+			// the rate list survives replugs empty, so retry until it fills
+			if (rates_dev != driver_indicator || card_rates.empty()) {
+				rates_dev = driver_indicator;
+				read_supported_rates(devices[driver_indicator].usb_id, card_rates);
+			}
 		}
 		// A device that stops answering - suspend stales the handle, or the
 		// cable came out - drops to offline and quietly retries until it is
@@ -1215,18 +1286,34 @@ int main(int, char**)
 				ImGui::TextDisabled("%s", st);
 				ImGui::PopFont();
 			}
-			if (sample_rate > 0) {
+			if (sample_rate > 0 || !card_rates.empty()) {
 				char rb[24];
-				if (sample_rate % 1000 == 0)
-					snprintf(rb, sizeof(rb), "%d kHz", sample_rate / 1000);
-				else
-					snprintf(rb, sizeof(rb), "%.1f kHz", sample_rate / 1000.0);
+				khz_label(rb, sizeof(rb), sample_rate);
 				ImGui::PushFont(font, 13.0f);
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(rb).x) * 0.5f);
-				ImGui::TextDisabled("%s", rb);
+				float rw = ImGui::CalcTextSize(rb).x + style.FramePadding.x * 2.0f;
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - rw) * 0.5f);
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.06f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.10f));
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				if (ImGui::SmallButton(rb))
+					ImGui::OpenPopup("graphrate");
+				ImGui::PopStyleColor(4);
 				ImGui::PopFont();
+				hover_tip("The sample rate the graph runs at. Click to pin another\nthrough PipeWire, or hand the choice back to the applications.");
+				if (ImGui::BeginPopup("graphrate")) {
+					for (int r : card_rates) {
+						char lb[24];
+						khz_label(lb, sizeof(lb), r);
+						if (ImGui::MenuItem(lb, NULL, r == sample_rate))
+							force_graph_rate(r);
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Follow the applications"))
+						force_graph_rate(0);
+					ImGui::EndPopup();
+				}
 			}
-			ImGui::Dummy(ImVec2(0, 4.0f * main_scale));
 			const bool call_to_action = !connected;
 			if (call_to_action) {
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));

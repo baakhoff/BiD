@@ -193,6 +193,9 @@ physical knob alone.
    * Any pair — inputs or the outputs — can be summed to mono from the
      MONO half of its pair bar: both sides hear both channels, the pan
      pots rest while it is lit, and the choice is remembered
+   * The sample rate readout is a button: it pins the graph to any rate
+     the card offers, through PipeWire, or hands the choice back to the
+     applications
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles
