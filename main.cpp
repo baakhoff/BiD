@@ -805,12 +805,24 @@ int main(int, char**)
 						ImGui::SetCursorPosX(x0);
 						ImGui::PushFont(font, 13.0f);
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.92f, 0.30f, 0.28f, 1.00f));
-						if (toggleButton("M###Mu"+wid, ImVec2(pill_w, pill_h), mute_value[current_mix][idx])) { if (connected) send_channel(idx, current_mix); }
+						if (toggleButton("M###Mu"+wid, ImVec2(pill_w, pill_h), mute_value[current_mix][idx])) {
+							if (partner >= 0)
+								mute_value[current_mix][partner] = mute_value[current_mix][idx];
+							if (connected) {
+								send_channel(idx, current_mix);
+								if (partner >= 0)
+									send_channel(partner, current_mix);
+							}
+						}
 						ImGui::PopStyleColor();
 						hover_tip("Mute");
 						ImGui::SameLine(); ImGui::SetCursorPosX(x0 + pill_w + ps);
 						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.83f, 0.25f, 1.00f));
-						if (toggleButton("S###So"+wid, ImVec2(pill_w, pill_h), solo_value[current_mix][idx])) { if (connected) send_mix(current_mix); }
+						if (toggleButton("S###So"+wid, ImVec2(pill_w, pill_h), solo_value[current_mix][idx])) {
+							if (partner >= 0)
+								solo_value[current_mix][partner] = solo_value[current_mix][idx];
+							if (connected) send_mix(current_mix);
+						}
 						ImGui::PopStyleColor();
 						ImGui::PopFont();
 						hover_tip("Solo: mutes everything that is not soloed");
@@ -885,14 +897,20 @@ int main(int, char**)
 					ImGui::PushFont(font, 14.0f);
 					if (toggleButton("LINK", ImVec2(chan_w * 2.0f - style.ItemSpacing.x, link_h), out_link[0])) {
 						if (out_link[0]) {
-							// relinking snaps the right side back onto the left
-							bar_value[current_mix][mon_idx + 1] = bar_value[current_mix][mon_idx];
-							if (connected)
-								send_channel(mon_idx + 1, current_mix);
+							// relinking snaps the right side back onto the left - in every
+							// mix, not just the tab on screen, and the mute and solo state
+							// come along; a lit LINK must never hide a split pair
+							for (int m = 0; m < MIXER_BUSES; m++) {
+								bar_value[m][mon_idx + 1] = bar_value[m][mon_idx];
+								mute_value[m][mon_idx + 1] = mute_value[m][mon_idx];
+								solo_value[m][mon_idx + 1] = solo_value[m][mon_idx];
+								if (connected)
+									send_mix(m);
+							}
 						}
 					}
 					ImGui::PopFont();
-					hover_tip("While lit the pair moves as one; unlink to trim each side");
+					hover_tip("While lit the pair moves as one: levels, mute and solo.\nPan stays per side. Unlink to trim each side.");
 					ImGui::EndChild();
 					ImGui::PopStyleColor();
 					ImGui::SameLine();

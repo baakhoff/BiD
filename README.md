@@ -111,8 +111,10 @@ All done!
      longer scrolls away with the input strips
    * The two cue routing codes were crossed with the cue mixes: editing one
      cue changed outputs routed to the other. Caught by ear and swapped
-   * L Out and R Out move as one while their Link button is lit; unlink to
-     trim a side, relinking snaps the right fader back onto the left
+   * L Out and R Out move as one while their Link button is lit — levels,
+     mute and solo; pan stays per side to keep the stereo image. Unlink to
+     trim a side; relinking snaps the right side back onto the left in
+     every mix, not just the one on screen
    * The mixer remembers itself: all three mixes, pans, phase, routing, the
      link and the dials are saved per device under `~/.config/bid` on quit —
      including a logout or shutdown killing the tray — and restored on the
