@@ -418,13 +418,10 @@ static void load_state()
 	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
 }
 
-// The sample rate is negotiated by the kernel driver and the applications,
-// not by anything BiD says over USB, so the honest source is ALSA's procfs:
-// find the card by USB id, then take the momentary rate of whichever stream
-// is running. Zero means no stream is up, or no card was found at all.
-static int read_sample_rate(uint16_t usb_id)
+// Which ALSA card is this device? procfs, matched by USB id.
+static int asound_card_of(uint16_t usb_id)
 {
-	char path[64], line[256];
+	char path[64];
 	for (int card = 0; card < 32; card++) {
 		snprintf(path, sizeof(path), "/proc/asound/card%d/usbid", card);
 		FILE *f = fopen(path, "r");
@@ -433,11 +430,24 @@ static int read_sample_rate(uint16_t usb_id)
 		unsigned vid = 0, pid = 0;
 		int m = fscanf(f, "%x:%x", &vid, &pid);
 		fclose(f);
-		if (m != 2 || vid != 0x2708 || pid != usb_id)
-			continue;
+		if (m == 2 && vid == 0x2708 && pid == usb_id)
+			return card;
+	}
+	return -1;
+}
+
+// The sample rate is negotiated by the kernel driver and the applications,
+// not by anything BiD says over USB, so the honest source is ALSA's procfs:
+// take the momentary rate of whichever stream is running. Zero means no
+// stream is up, or no card was found at all.
+static int read_sample_rate(uint16_t usb_id)
+{
+	char path[64], line[256];
+	int card = asound_card_of(usb_id);
+	if (card >= 0) {
 		for (int stream = 0; stream < 4; stream++) {
 			snprintf(path, sizeof(path), "/proc/asound/card%d/stream%d", card, stream);
-			f = fopen(path, "r");
+			FILE *f = fopen(path, "r");
 			if (!f)
 				break;
 			int rate = 0;
@@ -450,7 +460,6 @@ static int read_sample_rate(uint16_t usb_id)
 			if (rate > 0)
 				return rate;
 		}
-		return 0;
 	}
 	return 0;
 }
@@ -461,18 +470,12 @@ static void read_supported_rates(uint16_t usb_id, std::vector<int>& out)
 {
 	out.clear();
 	char path[64], line[256];
-	for (int card = 0; card < 32; card++) {
-		snprintf(path, sizeof(path), "/proc/asound/card%d/usbid", card);
-		FILE *f = fopen(path, "r");
-		if (!f)
-			continue;
-		unsigned vid = 0, pid = 0;
-		int m = fscanf(f, "%x:%x", &vid, &pid);
-		fclose(f);
-		if (m != 2 || vid != 0x2708 || pid != usb_id)
-			continue;
+	int card = asound_card_of(usb_id);
+	{
+		if (card < 0)
+			return;
 		snprintf(path, sizeof(path), "/proc/asound/card%d/stream0", card);
-		f = fopen(path, "r");
+		FILE *f = fopen(path, "r");
 		if (!f)
 			return;
 		while (fgets(line, sizeof(line), f)) {
@@ -504,6 +507,46 @@ static void force_graph_rate(int hz)
 {
 	char cmd[128];
 	snprintf(cmd, sizeof(cmd), "pw-metadata -n settings 0 clock.force-rate %d >/dev/null 2>&1", hz);
+	if (system(cmd)) {}
+}
+
+// The clock selector and its validity flags are plain ALSA controls - the
+// kernel owns them, no USB protocol involved. amixer keeps BiD free of a
+// libasound link, the same bargain pw-metadata strikes with PipeWire.
+// Source 0 is the internal clock, 1 the optical input's.
+static void read_clock_state(int card, int *src, bool *int_ok, bool *opt_ok)
+{
+	char cmd[160], line[256];
+	*src = -1;
+	*int_ok = *opt_ok = false;
+	snprintf(cmd, sizeof(cmd), "amixer -c %d cget iface=MIXER,name='Audient Clock Selector Clock Source' 2>/dev/null", card);
+	FILE *p = popen(cmd, "r");
+	if (p) {
+		while (fgets(line, sizeof(line), p)) {
+			const char *v = strstr(line, ": values=");
+			if (v)
+				*src = atoi(v + 9);
+		}
+		pclose(p);
+	}
+	const char *names[2] = { "Internal", "Optical1" };
+	bool *flags[2] = { int_ok, opt_ok };
+	for (int i = 0; i < 2; i++) {
+		snprintf(cmd, sizeof(cmd), "amixer -c %d cget iface=CARD,name='Audient %s Clock Validity' 2>/dev/null", card, names[i]);
+		p = popen(cmd, "r");
+		if (!p)
+			continue;
+		while (fgets(line, sizeof(line), p))
+			if (strstr(line, ": values=on"))
+				*flags[i] = true;
+		pclose(p);
+	}
+}
+
+static void set_clock_source(int card, int src)
+{
+	char cmd[160];
+	snprintf(cmd, sizeof(cmd), "amixer -c %d cset iface=MIXER,name='Audient Clock Selector Clock Source' %d >/dev/null 2>&1", card, src);
 	if (system(cmd)) {}
 }
 
@@ -584,6 +627,8 @@ static void push_state_to_device()
 // Connect button and by the retry that follows a suspend or a pulled cable.
 static bool reconnect_pending = false;
 static double next_retry = 0.0;
+// whether the clock entity answers rate reads; re-probed on every connect
+static bool devrate_probe = true;
 static bool try_connect()
 {
 	if (!driver_init(devices[driver_indicator].usb_id))
@@ -598,6 +643,7 @@ static bool try_connect()
 		// until the first nudge
 		set_speaker_volume(levels[0]);
 	meter_readback = get_meters(meter_raw, 16) != 0;
+	devrate_probe = true;
 	push_state_to_device();
 	connected = true;
 	return true;
@@ -760,6 +806,9 @@ int main(int, char**)
 		static int sample_rate = 0;
 		static std::vector<int> card_rates;
 		static int rates_dev = -1;
+		static int asound_card = -1;
+		static int clock_src = -1;
+		static bool clock_int_ok = false, clock_opt_ok = false;
 		if (glfwGetTime() - last_rate > 1.0) {
 			last_rate = glfwGetTime();
 			sample_rate = read_sample_rate(devices[driver_indicator].usb_id);
@@ -767,6 +816,19 @@ int main(int, char**)
 			if (rates_dev != driver_indicator || card_rates.empty()) {
 				rates_dev = driver_indicator;
 				read_supported_rates(devices[driver_indicator].usb_id, card_rates);
+			}
+			asound_card = asound_card_of(devices[driver_indicator].usb_id);
+			if (asound_card >= 0)
+				read_clock_state(asound_card, &clock_src, &clock_int_ok, &clock_opt_ok);
+			else
+				clock_src = -1;
+			// no stream running: ask the device itself, once probed willing
+			if (sample_rate <= 0 && connected && devrate_probe) {
+				int hz = 0;
+				if (get_device_rate(&hz) && hz >= 8000 && hz <= 768000)
+					sample_rate = hz;
+				else
+					devrate_probe = false;
 			}
 		}
 		// A device that stops answering - suspend stales the handle, or the
@@ -1320,6 +1382,34 @@ int main(int, char**)
 					ImGui::Separator();
 					if (ImGui::MenuItem("Follow the applications"))
 						force_graph_rate(0);
+					ImGui::EndPopup();
+				}
+			}
+			if (clock_src >= 0) {
+				const bool cur_ok = clock_src == 1 ? clock_opt_ok : clock_int_ok;
+				const char* cname = clock_src == 1 ? "Optical" : "Internal";
+				ImGui::PushFont(font, 13.0f);
+				float cw = ImGui::CalcTextSize(cname).x + style.FramePadding.x * 2.0f + 10.0f * main_scale;
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - cw) * 0.5f);
+				ImVec2 cp = ImGui::GetCursorScreenPos();
+				ImGui::GetWindowDrawList()->AddCircleFilled(
+					ImVec2(cp.x + 3.0f * main_scale, cp.y + ImGui::GetTextLineHeight() * 0.62f), 3.0f * main_scale,
+					cur_ok ? IM_COL32(96, 222, 132, 255) : IM_COL32(255, 82, 72, 255));
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10.0f * main_scale);
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.06f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.10f));
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				if (ImGui::SmallButton(cname))
+					ImGui::OpenPopup("clocksrc");
+				ImGui::PopStyleColor(4);
+				ImGui::PopFont();
+				hover_tip("The clock the converters follow, with a light for its signal.\nOptical audio with the clock on Internal drifts and crackles -\nslave to Optical when recording the optical input.");
+				if (ImGui::BeginPopup("clocksrc")) {
+					if (ImGui::MenuItem(clock_int_ok ? "Internal" : "Internal (no signal)", NULL, clock_src == 0))
+						set_clock_source(asound_card, 0);
+					if (ImGui::MenuItem(clock_opt_ok ? "Optical" : "Optical (no signal)", NULL, clock_src == 1))
+						set_clock_source(asound_card, 1);
 					ImGui::EndPopup();
 				}
 			}

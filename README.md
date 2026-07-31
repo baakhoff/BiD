@@ -199,6 +199,9 @@ physical knob alone.
    * The loopback pair joined the routing window: whatever source it plays
      — a cue, the main mix, or playback channels 11+12 looped straight back
      — arrives in the computer as inputs 11+12, ready to record or stream
+   * The clock has a face: its source — Internal or Optical — sits under
+     the rate as a picker with a signal light, driven through ALSA; and
+     with no stream running the rate is asked of the device itself
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

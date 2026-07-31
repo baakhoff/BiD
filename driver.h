@@ -293,6 +293,20 @@ int get_meters(uint8_t *out, int n)
   return 1;
 }
 
+// The clock extension unit answers reads: the current rate as 32-bit Hz.
+// Useful when no stream is running, since procfs only shows a live one.
+int get_device_rate(int *hz)
+{
+  unsigned char b[4] = {0};
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x0600, 0x3e00 | control_iface, b, 4, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+  if (r != 4)
+    return 0;
+  *hz = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24);
+  return 1;
+}
+
 inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed
