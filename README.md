@@ -147,6 +147,10 @@ All done!
    * Every abbreviated button explains itself on a hover pause, and button
      labels are centred on the pixels they actually ink — the typeface rides
      low in its line box, which made small buttons read as off-centre
+   * A device that stops answering — a suspend staling the USB handle, or a
+     pulled cable — turns into a clean offline and a quiet retry every two
+     seconds; when the interface returns, BiD reconnects and pushes the
+     whole mixer back on its own. The status dot burns amber while it hunts
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

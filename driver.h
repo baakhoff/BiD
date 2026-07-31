@@ -9,6 +9,18 @@ static libusb_device_handle *devh = NULL;
 static bool driver_connected = false;
 static int control_iface = 0;
 
+// Set when a transfer reports the device gone: the handle went stale over a
+// suspend, or the cable came out. The app watches this and turns it into a
+// clean disconnect followed by a quiet retry.
+static bool driver_lost = false;
+
+static void note_transfer_error(int err)
+{
+  printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+  if (err == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+}
+
 int device_probe()
 {
   // discover devices
@@ -116,7 +128,7 @@ void set_vinyl_dm(float volume) {
   err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 0);
   err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00 | control_iface, (uint8_t*)&one, 2, 0);
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -130,7 +142,7 @@ void set_hp_volume(float volume) {
   err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
   err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -140,7 +152,7 @@ void set_speaker_volume(float volume) {
   int err = 0;
   err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600 | control_iface, (uint8_t*)&vol, 2, 0);
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -161,7 +173,7 @@ void set_mixer_cell(int input, int send, float gain)
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * MIXER_SENDS + send,
                                     0x3c00 | control_iface, (uint8_t*)&v, 2, 0);
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -193,7 +205,7 @@ void set_route(int out, int source)
   uint8_t code = route_code(out, source);
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 0);
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -224,7 +236,7 @@ void set_bool_state(int mode)
   err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600 | control_iface, (uint8_t*)&masterToggle[mode], 1, 0);
 
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
   //return masterToggle[mode];
 }
@@ -238,6 +250,8 @@ int get_bool_state(int mode, bool *out)
 {
   unsigned char b = 0;
   int r = libusb_control_transfer(devh, 0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
   if (r != 1)
     return 0;
   *out = b != 0;
@@ -248,6 +262,8 @@ int get_monitor_volume(float *out)
 {
   unsigned char b[2] = {0, 0};
   int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
   if (r != 2)
     return 0;
   float v = ((int16_t)(b[0] | (b[1] << 8)) + 32768) / 32767.0f;
@@ -265,6 +281,8 @@ int get_meters(uint8_t *out, int n)
 {
   unsigned char buf[32];
   int r = libusb_control_transfer(devh, 0xa1, 0x3, 0x0000, 0x3c00 | control_iface, buf, sizeof(buf), 50);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
   if (r != (int)sizeof(buf))
     return 0;
   if (n > 16)
@@ -284,7 +302,7 @@ void set_phase(int chan, bool on) //0 indexed
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 0);
 
   if (err < 0) {
-    printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+    note_transfer_error(err);
   }
 }
 
@@ -302,12 +320,14 @@ int driver_init(uint16_t deviceid)
   int err;
   err = libusb_init(NULL);
   assert(err == LIBUSB_SUCCESS);
+  driver_lost = false;
 
   devh = libusb_open_device_with_vid_pid(NULL, 0x2708, deviceid); //MKI
   //if (!devh)
 //	devh = libusb_open_device_with_vid_pid(NULL, 0x2708, 0x0008); //MKII
   if (!devh) {
     driver_connected = false;
+    libusb_exit(NULL);
     return false;
   }
   assert(devh != NULL);
@@ -324,6 +344,9 @@ int driver_init(uint16_t deviceid)
     if (err < 0) {
       printf("libusb_set_auto_detach_kernel_driver failed: %s\n", libusb_error_name(err));
       driver_connected = false;
+      libusb_close(devh);
+      devh = NULL;
+      libusb_exit(NULL);
       return false;
     }
   }
@@ -331,6 +354,9 @@ int driver_init(uint16_t deviceid)
   if (err < 0) {
     printf("libusb_claim_interface failed: %s\n", libusb_error_name(err));
     driver_connected = false;
+    libusb_close(devh);
+    devh = NULL;
+    libusb_exit(NULL);
     return false;
   }
   driver_connected = true;

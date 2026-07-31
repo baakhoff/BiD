@@ -412,6 +412,25 @@ static void push_state_to_device()
 		set_route_pair(p, route_state[p]);
 }
 
+// The whole connect ritual in one place: open the device, probe what it
+// answers, pull the monitor section's state, push the mixer's. Used by the
+// Connect button and by the retry that follows a suspend or a pulled cable.
+static bool reconnect_pending = false;
+static double next_retry = 0.0;
+static bool try_connect()
+{
+	if (!driver_init(devices[driver_indicator].usb_id))
+		return false;
+	float probe;
+	hw_readback = get_monitor_volume(&probe) != 0;
+	if (hw_readback)
+		sync_state_from_device();
+	meter_readback = get_meters(meter_raw, 16) != 0;
+	push_state_to_device();
+	connected = true;
+	return true;
+}
+
 bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference value) {
 	int mastercol = 0;
 	bool state = false;
@@ -563,6 +582,20 @@ int main(int, char**)
 			if (connected)
 				set_bool_state(idx);
 			tray_set_master(idx, master_bools[idx]);
+		}
+		// A device that stops answering - suspend stales the handle, or the
+		// cable came out - drops to offline and quietly retries until it is
+		// back, rather than leaving faders wired to nothing.
+		if (connected && driver_lost) {
+			driver_shutdown();
+			connected = false;
+			reconnect_pending = true;
+			next_retry = glfwGetTime() + 1.0;
+		}
+		if (reconnect_pending && glfwGetTime() > next_retry) {
+			next_retry = glfwGetTime() + 2.0;
+			if (try_connect())
+				reconnect_pending = false;
 		}
 		// The monitor level is the one control that gets watched while it
 		// moves, so it is read every tick. The toggles are discrete and go
@@ -993,14 +1026,14 @@ int main(int, char**)
 			TextCentered(devices[driver_indicator].name.c_str());
 			ImGui::PopFont();
 			{
-				const char* st = connected ? "online" : "offline";
+				const char* st = connected ? "online" : (reconnect_pending ? "reconnecting" : "offline");
 				ImGui::PushFont(font, 14.0f);
 				float w = ImGui::CalcTextSize(st).x + 12.0f * main_scale;
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - w) * 0.5f);
 				ImVec2 dp = ImGui::GetCursorScreenPos();
 				ImGui::GetWindowDrawList()->AddCircleFilled(
 					ImVec2(dp.x + 3.5f * main_scale, dp.y + ImGui::GetTextLineHeight() * 0.55f), 3.5f * main_scale,
-					connected ? IM_COL32(96, 222, 132, 255) : IM_COL32(122, 128, 142, 255));
+					connected ? IM_COL32(96, 222, 132, 255) : reconnect_pending ? IM_COL32(255, 163, 41, 255) : IM_COL32(122, 128, 142, 255));
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f * main_scale);
 				ImGui::TextDisabled("%s", st);
 				ImGui::PopFont();
@@ -1014,23 +1047,15 @@ int main(int, char**)
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.11f, 0.09f, 0.06f, 1.00f));
 			}
 			if (ImGui::Button(connected ? "Disconnect" : "Connect", ImVec2(ImGui::GetContentRegionAvail().x, 34.0f * main_scale))) {
-				connected = !connected;
 				if (connected) {
-					if (!driver_init(devices[driver_indicator].usb_id)) {
-						connected = false;
-						ImGui::OpenPopup("No connection possible");
-					}
-					else {
-						float probe;
-						hw_readback = get_monitor_volume(&probe) != 0;
-						if (hw_readback)
-							sync_state_from_device();
-						meter_readback = get_meters(meter_raw, 16) != 0;
-						push_state_to_device();
-					}
-				}
-				else
+					connected = false;
+					reconnect_pending = false; // asked to let go: no quiet retry
 					driver_shutdown();
+				}
+				else if (try_connect())
+					reconnect_pending = false;
+				else
+					ImGui::OpenPopup("No connection possible");
 			};
 			if (call_to_action)
 				ImGui::PopStyleColor(4);
