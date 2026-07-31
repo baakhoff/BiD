@@ -20,13 +20,28 @@ Unlike the original, BiD talks to the interface over its spare DFU interface rat
     connect instead
 * Linux is the target; the tray and desktop integration are Linux only
 
+## Quick install
+
+One line on any major distro (Debian/Ubuntu, Fedora, Arch, openSUSE):
+
+```
+curl -fsSL https://raw.githubusercontent.com/baakhoff/BiD/master/install.sh | bash
+```
+
+It installs the build dependencies with your package manager, builds the
+newest release, installs the binary with its desktop entry and icon, and
+writes the udev rule so BiD runs without root. Re-run it any time to
+update. Rather read before you pipe? Download [install.sh](install.sh) and
+run it locally — it is short.
+
 ## Compilation
 
 ### Dependencies
 
-* CMake
-* libglew-dev
-* GCC or Clang
+* CMake, a C++ compiler and pkg-config
+* libglfw3-dev (glfw-devel)
+* libusb-1.0-0-dev (libusb1-devel)
+* OpenGL headers (libgl-dev / mesa-libGL-devel)
 * libsystemd-dev, or basu on distributions without systemd (optional, enables the system tray icon)
 
 ### Compile
@@ -133,6 +148,11 @@ physical knob alone.
 
 ### BiD
 
+* 0.2.2
+   * One line installs it on any major distro: the installer picks apt, dnf,
+     pacman or zypper, pulls the dependencies, builds the newest release,
+     installs the desktop entry and writes the udev rule
+   * The GLEW build requirement is gone — nothing ever used it
 * 0.2.1
    * Routing rewritten with the iD24's real source codes (decoded by
      [Monix](https://github.com/sKuhLight/monix) from the official app). The
