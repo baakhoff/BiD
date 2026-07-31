@@ -57,6 +57,12 @@ static std::vector<bool> chan_link;
 // And any pair - inputs or the pinned outputs - can be summed to mono:
 // while lit, both sides hear both channels. Keyed like chan_link.
 static std::vector<bool> chan_mono;
+// A channel can be named for what it carries; empty keeps the stock
+// label. rename_idx is the strip being edited right now, if any.
+static std::vector<std::string> chan_name;
+static int rename_idx = -1;
+static char rename_buf[24];
+static bool rename_focus = false;
 // One-shot: the mix tab the state file wants selected on the first frame.
 static int want_mix_tab = -1;
 // Per mix: a master trim over everything it sends, and mute/solo per
@@ -171,6 +177,7 @@ static void reset_mixes()
 	}
 	chan_link.clear();
 	chan_mono.clear();
+	chan_name.clear();
 }
 
 // Which pair does a channel belong to? Returns the pair's left channel,
@@ -282,6 +289,9 @@ static void save_state()
 	for (size_t i = 0; i < n && i < chan_mono.size(); i++)
 		fprintf(f, " %d", chan_mono[i] ? 1 : 0);
 	fprintf(f, "\nloopback %d\n", route_state[3]);
+	for (size_t i = 0; i < n && i < chan_name.size(); i++)
+		if (!chan_name[i].empty())
+			fprintf(f, "name %zu %s\n", i, chan_name[i].c_str());
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -381,6 +391,22 @@ static void load_state()
 	}
 	int lbsrc = -1;
 	bool extra4 = extra3 && fscanf(f, "%15s %d", key, &lbsrc) == 2 && strcmp(key, "loopback") == 0;
+	// channel names, one line each, written only for the renamed
+	std::vector<std::string> nm((size_t)n);
+	if (extra4) {
+		long ni = 0;
+		while (fscanf(f, "%15s %ld", key, &ni) == 2 && strcmp(key, "name") == 0) {
+			char rest[64] = {0};
+			if (!fgets(rest, sizeof(rest), f))
+				break;
+			char *t = rest;
+			while (*t == ' ')
+				t++;
+			t[strcspn(t, "\n")] = 0;
+			if (ni >= 0 && ni < n && *t)
+				nm[ni] = t;
+		}
+	}
 	fclose(f);
 	if (!ok)
 		return;
@@ -416,6 +442,7 @@ static void load_state()
 	else
 		chan_mono.assign(n, false);
 	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
+	chan_name.assign(nm.begin(), nm.end());
 }
 
 // Which ALSA card is this device? procfs, matched by USB id.
@@ -956,6 +983,7 @@ int main(int, char**)
 						phase_value.push_back(false);
 						chan_link.push_back(false);
 						chan_mono.push_back(false);
+						chan_name.push_back(std::string());
 						// Everything starts centred except the digital pair
 						// that feeds the monitor outputs, which is the one
 						// place we know is stereo: panning it apart is what
@@ -1097,9 +1125,38 @@ int main(int, char**)
 					ImVec2 tl = ImGui::GetCursorScreenPos();
 					ImGui::BeginGroup();
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
+					const std::string& disp = (idx < (int)chan_name.size() && !chan_name[idx].empty()) ? chan_name[idx] : label;
 					ImGui::PushFont(font, 15.0f);
-					center_in_column(ImGui::CalcTextSize(label.c_str()).x);
-					ImGui::TextUnformatted(label.c_str());
+					if (rename_idx == idx) {
+						ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + 4.0f * main_scale));
+						ImGui::SetNextItemWidth(chan_w - 8.0f * main_scale);
+						if (rename_focus) {
+							ImGui::SetKeyboardFocusHere();
+							rename_focus = false;
+						}
+						bool done = ImGui::InputText("##rename", rename_buf, sizeof(rename_buf), ImGuiInputTextFlags_EnterReturnsTrue);
+						if (done || ImGui::IsItemDeactivated()) {
+							std::string nv = rename_buf;
+							while (!nv.empty() && nv.back() == ' ')
+								nv.pop_back();
+							while (!nv.empty() && nv.front() == ' ')
+								nv.erase(nv.begin());
+							if (nv == label)
+								nv.clear(); // the stock name stays the stock name
+							if (idx < (int)chan_name.size())
+								chan_name[idx] = nv;
+							rename_idx = -1;
+						}
+					} else {
+						center_in_column(ImGui::CalcTextSize(disp.c_str()).x);
+						ImGui::TextUnformatted(disp.c_str());
+						if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+							rename_idx = idx;
+							snprintf(rename_buf, sizeof(rename_buf), "%s", disp.c_str());
+							rename_focus = true;
+						}
+						hover_tip("Double click: rename");
+					}
 					ImGui::PopFont();
 					{
 						ImDrawList* dl = ImGui::GetWindowDrawList();
