@@ -83,3 +83,19 @@ include(GNUInstallDirs)
 install(TARGETS BiD RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES Desktop/bid.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
 install(FILES Desktop/bid.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)
+# The udev rule rides along; udev only reads it from the system prefix, so
+# a /usr/local install carries a dead copy and install.sh does the real one
+install(FILES packaging/84-audient.rules DESTINATION lib/udev/rules.d)
+
+# ---- packaging: `cpack -G DEB` in the build directory makes the .deb ----
+set(CPACK_PACKAGE_NAME "bid")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Mixer control panel for Audient iD audio interfaces")
+set(CPACK_PACKAGE_DESCRIPTION "Unofficial Linux control panel for the Audient iD series: mixes, cues, routing, loopback, meters and the monitor section, over the interface's spare USB port so audio keeps playing.")
+set(CPACK_PACKAGE_CONTACT "baakhoff <https://github.com/baakhoff/BiD>")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/baakhoff/BiD")
+set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_LIST_DIR}/packaging/deb/postinst")
+set(CPACK_STRIP_FILES TRUE)
+include(CPack)

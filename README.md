@@ -34,6 +34,10 @@ writes the udev rule so BiD runs without root. Re-run it any time to
 update. Rather read before you pipe? Download [install.sh](install.sh) and
 run it locally — it is short.
 
+Prefer a package? Every release carries a `.deb` (dependencies and the
+udev rule baked in) and an AppImage that runs anywhere; Arch users find a
+[PKGBUILD](packaging/PKGBUILD) in `packaging/`.
+
 ## Compilation
 
 ### Dependencies
@@ -153,6 +157,9 @@ physical knob alone.
      pacman or zypper, pulls the dependencies, builds the newest release,
      installs the desktop entry and writes the udev rule
    * The GLEW build requirement is gone — nothing ever used it
+   * Packages: a Debian package with the udev rule and dependencies baked
+     in (`cpack -G DEB`), an AppImage built with linuxdeploy, and a
+     PKGBUILD for Arch under `packaging/`
 * 0.2.1
    * Routing rewritten with the iD24's real source codes (decoded by
      [Monix](https://github.com/sKuhLight/monix) from the official app). The

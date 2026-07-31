@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+# the udev rule ships with the package; make it live without a reboot
+if command -v udevadm >/dev/null 2>&1; then
+	udevadm control --reload-rules || true
+	udevadm trigger --attr-match=idVendor=2708 || true
+fi
