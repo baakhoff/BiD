@@ -198,8 +198,9 @@ void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 
 
 // Routing lives on entity 0x33, selector 0x06; the wValue channel is the
-// output index. 0..5 are the analog outputs (1/2, 3/4, phones), 8..11 the
-// digital ones, which nothing here touches yet.
+// output index. 0..5 are the analog outputs (1/2, 3/4, phones), 8..9 the
+// optical pair, and 10..11 the loopback pair, whose signal comes back to
+// the computer as capture channels 11+12.
 void set_route(int out, int source)
 {
   uint8_t code = route_code(out, source);

@@ -146,12 +146,17 @@ void TextCentered(const char* text) {
 // second the alternate speakers, and the phones cue A: the main feed is the
 // monitor section's, so dim and cut would land in the headphones too, while
 // on a cue the phones answer only to their own dial.
-static const int route_default[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A };
-static int route_state[3] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A };
+// The fourth entry is the loopback pair: not a jack, but routing outputs
+// 10 and 11, whose signal the hardware hands back to the computer as
+// capture channels 11+12 (decoded by Monix from the official app). Its
+// default is DAW Thru: silent unless something plays into 11+12, and
+// never coupled to the monitor knob by surprise.
+static const int route_default[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
+static int route_state[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
 
 static void reset_routing()
 {
-	for (int p = 0; p < 3; p++)
+	for (int p = 0; p < 4; p++)
 		route_state[p] = route_default[p];
 }
 
@@ -276,7 +281,7 @@ static void save_state()
 	fprintf(f, "\npairmono");
 	for (size_t i = 0; i < n && i < chan_mono.size(); i++)
 		fprintf(f, " %d", chan_mono[i] ? 1 : 0);
-	fprintf(f, "\n");
+	fprintf(f, "\nloopback %d\n", route_state[3]);
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -374,6 +379,8 @@ static void load_state()
 		int v = 0;
 		if (fscanf(f, "%d", &v) != 1) extra3 = false; else pm.push_back(v != 0);
 	}
+	int lbsrc = -1;
+	bool extra4 = extra3 && fscanf(f, "%15s %d", key, &lbsrc) == 2 && strcmp(key, "loopback") == 0;
 	fclose(f);
 	if (!ok)
 		return;
@@ -408,6 +415,7 @@ static void load_state()
 		chan_mono.assign(pm.begin(), pm.end());
 	else
 		chan_mono.assign(n, false);
+	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
 }
 
 // The sample rate is negotiated by the kernel driver and the applications,
@@ -568,6 +576,7 @@ static void push_state_to_device()
 	set_hp_volume(levels[1]);
 	for (int p = 0; p < 3; p++)
 		set_route_pair(p, route_state[p]);
+	set_route_pair(5, route_state[3]); // the loopback pair, outs 10 and 11
 }
 
 // The whole connect ritual in one place: open the device, probe what it
@@ -1468,7 +1477,7 @@ int main(int, char**)
 			// app treats routing. The rows are the routing outputs in device
 			// order: 0/1, 2/3, then the phones on 4/5. The full story lives
 			// in the (?) so the table is not buried under a paragraph.
-			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones" };
+			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones", "Loopback" };
 			const char* source_names[] = { "Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Thru" };
 			ImGui::TextDisabled("Each output pair plays one source.");
 			ImGui::SameLine();
@@ -1480,7 +1489,11 @@ int main(int, char**)
 					"feed for a second set of speakers, switched in with Alt. The cues are\n"
 					"separate mixes, clear of the monitor section, so the speaker buttons\n"
 					"leave them alone and the Phones dial sets the phones' level. DAW Thru\n"
-					"comes straight from the computer at full level - no control at all.");
+					"comes straight from the computer at full level - no control at all.\n"
+					"\n"
+					"Loopback is not a jack: whatever it plays arrives back in the\n"
+					"computer as inputs 11+12, ready to record or stream. On that row,\n"
+					"DAW Thru means playback channels 11+12 looped straight back.");
 			ImGui::Spacing();
 
 			if (ImGui::BeginTable("routing", 1 + ROUTE_SOURCES, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
@@ -1491,7 +1504,7 @@ int main(int, char**)
 					ImGui::TableSetupColumn(source_names[s], ImGuiTableColumnFlags_WidthFixed,
 						ImGui::CalcTextSize(source_names[s]).x + style.CellPadding.x * 2.0f + 8.0f * main_scale);
 				ImGui::TableHeadersRow();
-				for (int pair = 0; pair < 3; pair++)
+				for (int pair = 0; pair < 4; pair++)
 				{
 					ImGui::PushID(pair);
 					ImGui::TableNextRow();
@@ -1508,8 +1521,9 @@ int main(int, char**)
 							if (avail > rw)
 								ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - rw) * 0.5f);
 							if (ImGui::RadioButton("", &route_state[pair], s)) {
+								// the loopback row lives on hardware pair 5: outs 10 and 11
 								if (connected)
-									set_route_pair(pair, s);
+									set_route_pair(pair == 3 ? 5 : pair, s);
 							};
 							ImGui::PopID();
 						}
@@ -1521,8 +1535,8 @@ int main(int, char**)
 			if (ImGui::Button("Reset to defaults")) {
 				reset_routing();
 				if (connected)
-					for (int p = 0; p < 3; p++)
-						set_route_pair(p, route_state[p]);
+					for (int p = 0; p < 4; p++)
+						set_route_pair(p == 3 ? 5 : p, route_state[p]);
 			}
 			ImGui::End();
 		}

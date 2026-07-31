@@ -196,6 +196,9 @@ physical knob alone.
    * The sample rate readout is a button: it pins the graph to any rate
      the card offers, through PipeWire, or hands the choice back to the
      applications
+   * The loopback pair joined the routing window: whatever source it plays
+     — a cue, the main mix, or playback channels 11+12 looped straight back
+     — arrives in the computer as inputs 11+12, ready to record or stream
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

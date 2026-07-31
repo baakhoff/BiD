@@ -61,7 +61,8 @@ image of anything arriving as a stereo pair.
 
 Entity `0x33`, selector `0x06`, one byte of data; the wValue channel is the
 output index. Outputs 0..5 are the analog side — 1/2 main, 3/4 line, then the
-phones — and 8..11 the digital one. The byte picks what that output plays:
+phones — 8..9 the optical pair, and 10..11 the loopback pair. The byte picks
+what that output plays:
 
     main mix   0x25 left half of the pair, 0x26 right
     alt        0x1e / 0x1f    the same feed for the alternate speakers
@@ -89,6 +90,15 @@ that carries it — verified on hardware by routing the phones there and
 watching dim and cut land in the headphones. The cue feeds bypass the
 monitor section entirely, which is why BiD parks the phones on cue A: they
 then answer only to the headphone volume on feature unit 0x0c.
+
+Outputs 10 and 11 are not jacks at all: they are the loopback pair. The
+official app's `Id24ProductDefinition` declares loopback-to-host on output
+`0x0a`, and whatever these two outputs play is handed back to the computer
+as capture channels 11+12 — exactly the two channels the USB descriptor
+exposes beyond the ten physical inputs. Any source code works there, so the
+loopback can record a cue, the main mix (knob, dim and cut included, since
+that feed is the monitor section's), or — as DAW `0x0a`/`0x0b` — playback
+channels 11+12 looped straight back for apps that target them directly.
 
 These are the iD24's codes, decoded by Monix from the official app. The table
 BiD carried before 0.2.1 predated this device and wrote different codes, which
