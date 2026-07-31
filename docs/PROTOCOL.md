@@ -107,6 +107,24 @@ at full level that no fader controls. Routing survives power cycles and the
 entity cannot be read, so BiD pushes its routing state on connect along with
 everything else.
 
+## The F buttons
+
+F1..F3 emit nothing over USB on their own. Without the official app they do
+nothing at all — no monitor function fires — and with every readable corner
+watched during presses, nothing moves: entity 0x36 selectors 0x00..0x30
+(selector 0x10 idles at 0xff and never budges), the system entities 0x01
+and 0x14 (which hold the optical port modes), extension units 0x32 (one
+selector, zero) and 0x34 (answers every selector 0x00..0x10 with the same
+byte 0x11 — a stub or version echo, not state), the GET_MEM blocks past
+offset 0 (offsets 1..3 do not answer on this firmware), the HID interface
+(silent during presses), and the AudioControl interrupt endpoint, which the
+firmware never uses — even the volume knob announces nothing there.
+
+So the official app must arm or poll something still unknown, and it — not
+the device — performs the assigned action. Until a capture of that app
+exists, the buttons are out of reach from Linux. The dispatch side is the
+easy half: everything an F button can trigger is already writable here.
+
 ## Volume encoding
 
 int16, 1/256 dB. `0x0000` is 0 dB and `0x8000` is mute. BiD maps a 0..1 fader
