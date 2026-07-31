@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15...4.0)
 project(
   BiD
-  VERSION 0.2.1
+  VERSION 0.2.2
   LANGUAGES C CXX)
 
 add_definitions(-DVERSION_BID="${BiD_VERSION}") 
@@ -23,9 +23,6 @@ add_library(imgui
 	${imgui_external_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui PUBLIC ${imgui_external_SOURCE_DIR})
-find_package(GLEW REQUIRED)
-include_directories(${GLEW_INCLUDE_DIRS})
-
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIRS})
 
