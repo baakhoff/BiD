@@ -633,6 +633,12 @@ static bool devrate_probe = true;
 // 1 = S/PDIF, -1 = not read yet. The device remembers these itself, so
 // they are read on connect and only written when the user flips one.
 static int optical_mode[2] = { -1, -1 };
+// The rest of the monitor section, read from entity 0x36 on connect. A
+// negative value means the device did not answer and the control hides.
+static int talk_source = -1;   // 0x10 mic 1, 0x11 mic 2, 0x12 digi 1
+static int mono_mode = -1;     // 0 sum to centre, 1 left only, 2 right only
+static float dim_trim = -1.0f;
+static float alt_trim = -1.0f;
 static bool try_connect()
 {
 	if (!driver_init(devices[driver_indicator].usb_id))
@@ -650,6 +656,14 @@ static bool try_connect()
 	for (int w = 0; w < 2; w++)
 		if (!get_optical_mode(w, &optical_mode[w]))
 			optical_mode[w] = -1;
+	{
+		unsigned char b;
+		float f;
+		talk_source = get_monitor_byte(0x0800, &b) ? b : -1;
+		mono_mode = get_monitor_byte(0x0100, &b) ? b : -1;
+		dim_trim = get_monitor_level(0x0600, &f) ? f : -1.0f;
+		alt_trim = get_monitor_level(0x1700, &f) ? f : -1.0f;
+	}
 	devrate_probe = true;
 	push_state_to_device();
 	connected = true;
@@ -1499,19 +1513,74 @@ int main(int, char**)
 			ImGui::BeginGroup();
 			grid_row();
 			if (toggleButton("DIM", ImVec2(btn_w, btn_h), master_bools[0])) { if (connected) {set_bool_state(0);} tray_set_master(0, master_bools[0]);};
-			hover_tip("Dim the monitor level");
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+				ImGui::OpenPopup("dimtrim");
+			hover_tip("Dim the monitor level. Right click: how far it drops");
+			if (ImGui::BeginPopup("dimtrim")) {
+				ImGui::TextDisabled("Dim drops the monitors to");
+				if (dim_trim >= 0.0f) {
+					int pct = (int)(dim_trim * 100.0f + 0.5f);
+					ImGui::SetNextItemWidth(160.0f * main_scale);
+					if (ImGui::SliderInt("##dimtrim", &pct, 0, 100, "%d%%")) {
+						dim_trim = pct / 100.0f;
+						if (connected) set_monitor_level(0x0600, dim_trim);
+					}
+				} else
+					ImGui::TextDisabled(connected ? "no answer from the device" : "connect first");
+				ImGui::EndPopup();
+			}
 			ImGui::SameLine();
 			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
-			hover_tip("Switch to the alternate speakers");
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+				ImGui::OpenPopup("alttrim");
+			hover_tip("Switch to the alternate speakers. Right click: their trim");
+			if (ImGui::BeginPopup("alttrim")) {
+				ImGui::TextDisabled("Alternate speakers' trim");
+				if (alt_trim >= 0.0f) {
+					int pct = (int)(alt_trim * 100.0f + 0.5f);
+					ImGui::SetNextItemWidth(160.0f * main_scale);
+					if (ImGui::SliderInt("##alttrim", &pct, 0, 100, "%d%%")) {
+						alt_trim = pct / 100.0f;
+						if (connected) set_monitor_level(0x1700, alt_trim);
+					}
+				} else
+					ImGui::TextDisabled(connected ? "no answer from the device" : "connect first");
+				ImGui::EndPopup();
+			}
 			ImGui::SameLine();
 			if (toggleButton("TALK", ImVec2(btn_w, btn_h), master_bools[2])) { if (connected) {set_bool_state(2);} tray_set_master(2, master_bools[2]);};
-			hover_tip("Talkback to the cues");
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+				ImGui::OpenPopup("talksrc");
+			hover_tip("Talkback to the cues. Right click: what it talks with");
+			if (ImGui::BeginPopup("talksrc")) {
+				const char* tnames[3] = { "Mic 1", "Mic 2", "Digi 1" };
+				for (int k = 0; k < 3; k++)
+					if (ImGui::MenuItem(tnames[k], NULL, talk_source == 0x10 + k, connected)) {
+						talk_source = 0x10 + k;
+						set_monitor_byte(0x0800, (unsigned char)talk_source);
+					}
+				ImGui::EndPopup();
+			}
 			grid_row();
 			if (toggleButton("PHASE", ImVec2(btn_w, btn_h), master_bools[3])) { if (connected) {set_bool_state(3);} tray_set_master(3, master_bools[3]);};
 			hover_tip("Invert the monitors' phase");
 			ImGui::SameLine();
-			if (toggleButton("MONO", ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
-			hover_tip("Sum the monitors to mono");
+			{
+				std::string mono_face = mono_mode == 1 ? "MONO L###MONO" : mono_mode == 2 ? "MONO R###MONO" : "MONO";
+				if (toggleButton(mono_face, ImVec2(btn_w, btn_h), master_bools[4])) { if (connected) {set_bool_state(4);} tray_set_master(4, master_bools[4]);};
+			}
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+				ImGui::OpenPopup("monomode");
+			hover_tip("Sum the monitors to mono. Right click: centre, left or right only");
+			if (ImGui::BeginPopup("monomode")) {
+				const char* mnames[3] = { "Sum to centre", "Left only", "Right only" };
+				for (int k = 0; k < 3; k++)
+					if (ImGui::MenuItem(mnames[k], NULL, mono_mode == k, connected)) {
+						mono_mode = k;
+						set_monitor_byte(0x0100, (unsigned char)k);
+					}
+				ImGui::EndPopup();
+			}
 			ImGui::SameLine();
 			if (toggleButton("CUT", ImVec2(btn_w, btn_h), master_bools[5])) { if (connected) {set_bool_state(5);} tray_set_master(5, master_bools[5]);};
 			hover_tip("Mute the monitors");

@@ -205,6 +205,11 @@ physical knob alone.
    * The optical ports switch between ADAT and S/PDIF from the routing
      window; the device remembers the modes itself, so they are read on
      connect and only written when flipped
+   * The monitor section filled out behind right clicks: TALK picks what
+     it talks with (Mic 1, Mic 2 or Digi 1), MONO picks centre, left-only
+     or right-only and says so on its face, and DIM and ALT carry sliders
+     for how far Dim drops and the alternate speakers' trim — all read
+     from the device on connect, hidden when it does not answer
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

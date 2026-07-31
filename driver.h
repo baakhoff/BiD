@@ -272,6 +272,52 @@ int get_monitor_volume(float *out)
   return 1;
 }
 
+// The rest of the monitor section rides the same readable entity, keyed by
+// wValue = selector << 8: talkback source on 0x0800 (0x10 mic 1, 0x11
+// mic 2, 0x12 digi 1), mono mode on 0x0100 (0 centre, 1 left, 2 right),
+// dim trim on 0x0600 and alt trim on 0x1700, both int16 like the volumes.
+int get_monitor_byte(uint16_t wv, unsigned char *out)
+{
+  unsigned char b = 0;
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, 0x3600 | control_iface, &b, 1, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+  if (r != 1)
+    return 0;
+  *out = b;
+  return 1;
+}
+
+void set_monitor_byte(uint16_t wv, unsigned char v)
+{
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, &v, 1, 0);
+  if (err < 0) {
+    note_transfer_error(err);
+  }
+}
+
+int get_monitor_level(uint16_t wv, float *out)
+{
+  unsigned char b[2] = {0, 0};
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, 0x3600 | control_iface, b, 2, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+  if (r != 2)
+    return 0;
+  float v = ((int16_t)(b[0] | (b[1] << 8)) + 32768) / 32767.0f;
+  *out = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+  return 1;
+}
+
+void set_monitor_level(uint16_t wv, float volume)
+{
+  uint16_t vol = float_to_u16(volume);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, (uint8_t*)&vol, 2, 0);
+  if (err < 0) {
+    note_transfer_error(err);
+  }
+}
+
 // Meters are a different request family: GET_MEM, bRequest 0x03, on the
 // mixer entity, answered as one block for everything rather than per
 // channel. Offset 0 is the input nodes: sixteen of them, two bytes each,
