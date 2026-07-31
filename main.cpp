@@ -629,6 +629,10 @@ static bool reconnect_pending = false;
 static double next_retry = 0.0;
 // whether the clock entity answers rate reads; re-probed on every connect
 static bool devrate_probe = true;
+// what the optical ports are set to: [0] input, [1] output; 0 = ADAT,
+// 1 = S/PDIF, -1 = not read yet. The device remembers these itself, so
+// they are read on connect and only written when the user flips one.
+static int optical_mode[2] = { -1, -1 };
 static bool try_connect()
 {
 	if (!driver_init(devices[driver_indicator].usb_id))
@@ -643,6 +647,9 @@ static bool try_connect()
 		// until the first nudge
 		set_speaker_volume(levels[0]);
 	meter_readback = get_meters(meter_raw, 16) != 0;
+	for (int w = 0; w < 2; w++)
+		if (!get_optical_mode(w, &optical_mode[w]))
+			optical_mode[w] = -1;
 	devrate_probe = true;
 	push_state_to_device();
 	connected = true;
@@ -1620,6 +1627,37 @@ int main(int, char**)
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
+			}
+			ImGui::Spacing();
+			ImGui::TextDisabled("Optical ports");
+			ImGui::SameLine();
+			ImGui::TextDisabled("(?)");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("ADAT carries Digi 1..8; S/PDIF is a stereo pair. The device\nremembers the modes itself, so BiD reads them on connect and\nonly writes when a mode is flipped here.");
+			if (!connected) {
+				ImGui::TextDisabled("Connect to read and change the port modes.");
+			} else {
+				const char* port_names[2] = { "In", "Out" };
+				for (int w = 0; w < 2; w++) {
+					ImGui::PushID(200 + w);
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted(port_names[w]);
+					ImGui::SameLine(56.0f * main_scale);
+					if (ImGui::RadioButton("ADAT", optical_mode[w] == 0)) {
+						optical_mode[w] = 0;
+						set_optical_mode(w, 0);
+					}
+					ImGui::SameLine();
+					if (ImGui::RadioButton("S/PDIF", optical_mode[w] == 1)) {
+						optical_mode[w] = 1;
+						set_optical_mode(w, 1);
+					}
+					if (optical_mode[w] < 0) {
+						ImGui::SameLine();
+						ImGui::TextDisabled("- no answer");
+					}
+					ImGui::PopID();
+				}
 			}
 			ImGui::Spacing();
 			if (ImGui::Button("Reset to defaults")) {

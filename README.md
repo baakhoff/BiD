@@ -202,6 +202,9 @@ physical knob alone.
    * The clock has a face: its source — Internal or Optical — sits under
      the rate as a picker with a signal light, driven through ALSA; and
      with no stream running the rate is asked of the device itself
+   * The optical ports switch between ADAT and S/PDIF from the routing
+     window; the device remembers the modes itself, so they are read on
+     connect and only written when flipped
 * 0.2.0
    * Control goes through the spare DFU interface, so audio keeps playing while connected
    * System tray icon with close-to-tray and a menu carrying the monitor toggles

@@ -307,6 +307,36 @@ int get_device_rate(int *hz)
   return 1;
 }
 
+// The optical ports pick their format on two tiny entities of their own:
+// the input on 0x01 selector 0x00, the output on 0x14 selector 0x01. A
+// 32-bit value, 0 = ADAT (eight channels), 1 = S/PDIF (a stereo pair).
+// Both answer reads, so the device stays the truth and nothing is pushed
+// blind. which: 0 = input port, 1 = output port.
+int get_optical_mode(int which, int *mode)
+{
+  unsigned char b[4] = {0};
+  uint16_t wv = which ? 0x0100 : 0x0000;
+  uint16_t wi = (which ? 0x1400 : 0x0100) | control_iface;
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, wi, b, 4, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+  if (r != 4)
+    return 0;
+  *mode = b[0];
+  return 1;
+}
+
+void set_optical_mode(int which, int mode)
+{
+  uint32_t v = (uint32_t)mode;
+  uint16_t wv = which ? 0x0100 : 0x0000;
+  uint16_t wi = (which ? 0x1400 : 0x0100) | control_iface;
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, wi, (uint8_t*)&v, 4, 0);
+  if (err < 0) {
+    note_transfer_error(err);
+  }
+}
+
 inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed
