@@ -372,6 +372,43 @@ static void load_state()
 		chan_link.assign(n, false);
 }
 
+// The sample rate is negotiated by the kernel driver and the applications,
+// not by anything BiD says over USB, so the honest source is ALSA's procfs:
+// find the card by USB id, then take the momentary rate of whichever stream
+// is running. Zero means no stream is up, or no card was found at all.
+static int read_sample_rate(uint16_t usb_id)
+{
+	char path[64], line[256];
+	for (int card = 0; card < 32; card++) {
+		snprintf(path, sizeof(path), "/proc/asound/card%d/usbid", card);
+		FILE *f = fopen(path, "r");
+		if (!f)
+			continue;
+		unsigned vid = 0, pid = 0;
+		int m = fscanf(f, "%x:%x", &vid, &pid);
+		fclose(f);
+		if (m != 2 || vid != 0x2708 || pid != usb_id)
+			continue;
+		for (int stream = 0; stream < 4; stream++) {
+			snprintf(path, sizeof(path), "/proc/asound/card%d/stream%d", card, stream);
+			f = fopen(path, "r");
+			if (!f)
+				break;
+			int rate = 0;
+			while (fgets(line, sizeof(line), f)) {
+				const char *hit = strstr(line, "Momentary freq = ");
+				if (hit && sscanf(hit, "Momentary freq = %d", &rate) == 1 && rate > 0)
+					break;
+			}
+			fclose(f);
+			if (rate > 0)
+				return rate;
+		}
+		return 0;
+	}
+	return 0;
+}
+
 // A tray resident dies to SIGTERM at logout or shutdown; catching it turns
 // that into a normal quit, so the state still gets saved on the way out.
 static volatile sig_atomic_t got_signal = 0;
@@ -445,6 +482,11 @@ static bool try_connect()
 	hw_readback = get_monitor_volume(&probe) != 0;
 	if (hw_readback)
 		sync_state_from_device();
+	else
+		// no readback: the saved level is the only truth there is, and
+		// without this push the knob on screen and the hardware disagree
+		// until the first nudge
+		set_speaker_volume(levels[0]);
 	meter_readback = get_meters(meter_raw, 16) != 0;
 	push_state_to_device();
 	connected = true;
@@ -602,6 +644,13 @@ int main(int, char**)
 			if (connected)
 				set_bool_state(idx);
 			tray_set_master(idx, master_bools[idx]);
+		}
+		// the rate costs two file reads, so once a second is plenty
+		static double last_rate = 0.0;
+		static int sample_rate = 0;
+		if (glfwGetTime() - last_rate > 1.0) {
+			last_rate = glfwGetTime();
+			sample_rate = read_sample_rate(devices[driver_indicator].usb_id);
 		}
 		// A device that stops answering - suspend stales the handle, or the
 		// cable came out - drops to offline and quietly retries until it is
@@ -1094,6 +1143,17 @@ int main(int, char**)
 					connected ? IM_COL32(96, 222, 132, 255) : reconnect_pending ? IM_COL32(255, 163, 41, 255) : IM_COL32(122, 128, 142, 255));
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f * main_scale);
 				ImGui::TextDisabled("%s", st);
+				ImGui::PopFont();
+			}
+			if (sample_rate > 0) {
+				char rb[24];
+				if (sample_rate % 1000 == 0)
+					snprintf(rb, sizeof(rb), "%d kHz", sample_rate / 1000);
+				else
+					snprintf(rb, sizeof(rb), "%.1f kHz", sample_rate / 1000.0);
+				ImGui::PushFont(font, 13.0f);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(rb).x) * 0.5f);
+				ImGui::TextDisabled("%s", rb);
 				ImGui::PopFont();
 			}
 			ImGui::Dummy(ImVec2(0, 4.0f * main_scale));
