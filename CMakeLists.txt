@@ -85,7 +85,7 @@ install(FILES Desktop/bid.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/appli
 install(FILES Desktop/bid.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)
 # The udev rule rides along; udev only reads it from the system prefix, so
 # a /usr/local install carries a dead copy and install.sh does the real one
-install(FILES packaging/84-audient.rules DESTINATION lib/udev/rules.d)
+install(FILES packaging/70-audient.rules DESTINATION lib/udev/rules.d)
 
 # ---- packaging: `cpack -G DEB` in the build directory makes the .deb ----
 set(CPACK_PACKAGE_NAME "bid")

@@ -101,7 +101,10 @@ if [ "${BID_SKIP_UDEV:-0}" != 1 ]; then
 	getent group audio >/dev/null 2>&1 && GRP='GROUP="audio", '
 	[ -z "$GRP" ] && getent group plugdev >/dev/null 2>&1 && GRP='GROUP="plugdev", '
 	RULE="SUBSYSTEM==\"usb\", ATTR{idVendor}==\"2708\", MODE=\"0660\", ${GRP}TAG+=\"uaccess\""
-	RULES_FILE=/etc/udev/rules.d/84-audient.rules
+	RULES_FILE=/etc/udev/rules.d/70-audient.rules
+	# 70, not 84: the uaccess ACL is applied at 73, so a later rule tags
+	# too late and grants nothing - the old file goes away
+	[ -e /etc/udev/rules.d/84-audient.rules ] && as_root rm -f /etc/udev/rules.d/84-audient.rules
 	if [ ! -e "$RULES_FILE" ] || [ "$(cat "$RULES_FILE" 2>/dev/null)" != "$RULE" ]; then
 		say "writing the udev rule for the Audient vendor id"
 		printf '%s\n' "$RULE" | as_root tee "$RULES_FILE" >/dev/null

@@ -96,21 +96,19 @@ No driver and no configuration involved — confirmed on the iD24.
 
 ### udev rules
 
-By default the audio interface is grabbed by the kernel module, so we need to setup udev rules to avoid needing root permissions when opening BiD.
-All we have to do is add the Audient vendor id to the udev rules.
-The specific group might be different for your distro, but "plugdev" and "audio" seem to be the most commonly used.
+By default the USB device node is root-only, so BiD needs a udev rule to run
+without root. The installer writes it for you; by hand it is:
 
-Either:
 ```
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="audio"' >> /etc/udev/rules.d/84-audient.rules
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="audio", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/70-audient.rules
 ```
-or
-```
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="plugdev"' >> /etc/udev/rules.d/84-audient.rules
-```
-depending on your distro's permission group.
 
-Then either reboot or use the following command to reload the udev rules for the running system.
+The number matters: `uaccess` grants the logged-in user access through the
+seat ACL, and udev applies those ACLs at rule 73 — a later file (like the
+old `84-audient.rules`) tags too late and grants nothing unless you happen
+to be in the `audio` group, which stock Ubuntu users are not.
+
+Then either reboot or reload the rules for the running system.
 ```
 udevadm control --reload-rules && udevadm trigger --attr-match=idVendor=2708
 ```
@@ -130,6 +128,8 @@ out to be a badly seated speaker cable.
 | Only surround profiles offered for a stereo interface | Kernel + PipeWire | The USB descriptors declare no channel positions, so a surround layout gets invented. Choose the `Pro Audio` profile, which exposes the raw channels without guessing |
 | Mixer stops responding after suspend or a replug | BiD | Fixed in 0.2.1: BiD notices the stale device, shows an amber `reconnecting` dot and comes back on its own. On older builds, Disconnect and Connect again |
 | ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
+| Connect hangs forever as a normal user | udev | The rule's `uaccess` tag only works from files numbered below 73. Re-run the installer (it replaces the old `84-` file with `70-audient.rules`), replug the interface, retry |
+| Connected, but no control responds (models other than the iD24) | Firmware | Some models refuse control traffic on the spare interface. Force the old exclusive mode with `BID_CONTROL_IFACE=0 BiD` — audio pauses while connected — and please report your model in an issue |
 | One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
 
 To keep PipeWire away from the hardware volume (the iD14 MkII fix; harmless
@@ -159,6 +159,13 @@ physical knob alone.
 ### BiD
 
 * 0.2.3
+   * The udev rule moves to `70-audient.rules`, where its `uaccess` tag is
+     honoured — udev applies seat ACLs at 73, so the old `84-` file granted
+     nothing on stock Ubuntu and Connect hung forever as a normal user.
+     The installer replaces the old file
+   * `BID_CONTROL_IFACE` forces the control interface: `=0` is the old
+     exclusive mode that pauses audio, for models whose firmware refuses
+     control on the spare interface (reported on the iD14 MKII in #26)
    * BiD can start itself: "Start at login" in the menu writes an XDG
      autostart entry pointing at the very binary you are running, opening
      BiD hidden in the tray (`--tray`); "Connect on launch" opens the

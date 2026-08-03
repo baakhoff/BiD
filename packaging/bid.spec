@@ -38,7 +38,7 @@ tar -xzf %{SOURCE1} -C .
 %{_bindir}/BiD
 %{_datadir}/applications/bid.desktop
 %{_datadir}/icons/hicolor/scalable/apps/bid.svg
-%{_prefix}/lib/udev/rules.d/84-audient.rules
+%{_prefix}/lib/udev/rules.d/70-audient.rules
 
 %changelog
 * Fri Jul 31 2026 baakhoff - 0.2.2-1
