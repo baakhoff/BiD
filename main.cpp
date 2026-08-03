@@ -164,6 +164,23 @@ void TextCentered(const char* text) {
 static const int route_default[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
 static int route_state[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
 
+// How many fader pages this model has: the main mix plus its cues, within
+// what the state file can hold.
+static int active_buses()
+{
+	return ImClamp(1 + devices[driver_indicator].cue_mixes, 1, MIXER_BUSES);
+}
+
+// Teach the driver this model's matrix spacing before anything is written.
+static void apply_device_profile()
+{
+	mixer_stride = (1 + devices[driver_indicator].cue_mixes) * 2;
+	if (mixer_stride < 2)
+		mixer_stride = 2;
+	if (current_mix >= active_buses())
+		current_mix = 0;
+}
+
 static void reset_routing()
 {
 	for (int p = 0; p < 4; p++)
@@ -813,7 +830,7 @@ static bool push_state_to_device()
 	// open. Anything without a fader gets written to silence, or it plays
 	// into the buses and nothing in the app can lower it.
 	for (int i = (int)bar_value[0].size(); i < devices[driver_indicator].matrix_inputs; i++)
-		for (int s = 0; s < MIXER_SENDS; s++)
+		for (int s = 0; s < mixer_stride; s++)
 			set_mixer_cell(i, s, 0.0f);
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
@@ -847,6 +864,7 @@ static float alt_trim = -1.0f;
 static bool try_connect()
 {
 	transport_refused = false;
+	apply_device_profile();
 	if (!driver_init(devices[driver_indicator].usb_id))
 		return false;
 	float probe;
@@ -859,7 +877,8 @@ static bool try_connect()
 		// until the first nudge
 		set_speaker_volume(levels[0]);
 	meter_readback = get_meters(meter_raw, 16) != 0;
-	for (int w = 0; w < 2; w++)
+	optical_mode[0] = optical_mode[1] = -1;
+	for (int w = 0; w < (devices[driver_indicator].has_optical_out ? 2 : 1); w++)
 		if (!get_optical_mode(w, &optical_mode[w]))
 			optical_mode[w] = -1;
 	{
@@ -1009,6 +1028,7 @@ int main(int argc, char** argv)
 	int _dev = device_probe();
 	if (_dev >= 0) {
 		driver_indicator = _dev;
+	    apply_device_profile();
 	    reset_mixes();
 	    phase_value.clear();
 	    reset_routing();
@@ -1277,8 +1297,9 @@ int main(int argc, char** argv)
 				// speakers, DAW Thru bypasses the mixer at a fixed level.
 				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * main_scale, 8.0f * main_scale));
 				if (ImGui::BeginTabBar("mixtabs")) {
-					const char* mix_names[MIXER_BUSES] = { "MAIN MIX", "CUE A", "CUE B" };
-					for (int m = 0; m < MIXER_BUSES; m++)
+					const int buses = active_buses();
+					const char* mix_names[MIXER_BUSES] = { "MAIN MIX", buses > 2 ? "CUE A" : "CUE", "CUE B" };
+					for (int m = 0; m < buses; m++)
 						if (ImGui::BeginTabItem(mix_names[m], nullptr, m == want_mix_tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) { current_mix = m; ImGui::EndTabItem(); }
 					if (ImGui::TabItemButton("?", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {}
 					if (ImGui::IsItemHovered())
@@ -1880,10 +1901,14 @@ int main(int argc, char** argv)
 				ImGui::EndPopup();
 			}
 			ImGui::SameLine();
+			const bool has_alt = devices[driver_indicator].has_alt;
+			if (!has_alt) ImGui::BeginDisabled();
 			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
+			if (!has_alt) ImGui::EndDisabled();
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
 				ImGui::OpenPopup("alttrim");
-			hover_tip("Switch to the alternate speakers. Right click: their trim");
+			hover_tip(has_alt ? "Switch to the alternate speakers. Right click: their trim"
+			                  : "This model has no alternate speaker output");
 			if (ImGui::BeginPopup("alttrim")) {
 				ImGui::TextDisabled("Alternate speakers' trim");
 				if (alt_trim >= 0.0f) {
@@ -1968,6 +1993,7 @@ int main(int argc, char** argv)
 	                    reconnect_pending = false; // and stop hunting for it
 	                    save_state(); // keep the outgoing device's edits
 	                    driver_indicator = n;
+	                    apply_device_profile();
 	                    reset_mixes();
 	                    phase_value.clear();
 	                    reset_routing();
@@ -1995,6 +2021,20 @@ int main(int argc, char** argv)
 			// in the (?) so the table is not buried under a paragraph.
 			const char* pair_names[]   = { "Out 1+2", "Out 3+4", "Phones", "Loopback" };
 			const char* source_names[] = { "Main Mix", "Alt Spkr", "Cue A", "Cue B", "DAW Thru" };
+			// Only what this model has: the iD14 family has one cue, no
+			// alternate speakers and no loopback, and offering those would
+			// be inviting writes the device cannot honour.
+			const device_properties &rdev = devices[driver_indicator];
+			int srcs[ROUTE_SOURCES], nsrc = 0;
+			srcs[nsrc++] = ROUTE_MAIN;
+			if (rdev.has_alt)
+				srcs[nsrc++] = ROUTE_ALT;
+			if (rdev.cue_mixes >= 1)
+				srcs[nsrc++] = ROUTE_CUE_A;
+			if (rdev.cue_mixes >= 2)
+				srcs[nsrc++] = ROUTE_CUE_B;
+			srcs[nsrc++] = ROUTE_DAW;
+			const int npairs = rdev.has_loopback ? 4 : 3;
 			ImGui::TextDisabled("Each output pair plays one source.");
 			ImGui::SameLine();
 			ImGui::TextDisabled("(?)");
@@ -2012,24 +2052,25 @@ int main(int argc, char** argv)
 					"DAW Thru means playback channels 11+12 looped straight back.");
 			ImGui::Spacing();
 
-			if (ImGui::BeginTable("routing", 1 + ROUTE_SOURCES, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
+			if (ImGui::BeginTable("routing", 1 + nsrc, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
 			{
 				ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
 					ImGui::CalcTextSize("Out 0+0").x + style.CellPadding.x * 2.0f);
-				for (int s = 0; s < ROUTE_SOURCES; s++)
-					ImGui::TableSetupColumn(source_names[s], ImGuiTableColumnFlags_WidthFixed,
-						ImGui::CalcTextSize(source_names[s]).x + style.CellPadding.x * 2.0f + 8.0f * main_scale);
+				for (int k = 0; k < nsrc; k++)
+					ImGui::TableSetupColumn(source_names[srcs[k]], ImGuiTableColumnFlags_WidthFixed,
+						ImGui::CalcTextSize(source_names[srcs[k]]).x + style.CellPadding.x * 2.0f + 8.0f * main_scale);
 				ImGui::TableHeadersRow();
-				for (int pair = 0; pair < 4; pair++)
+				for (int pair = 0; pair < npairs; pair++)
 				{
 					ImGui::PushID(pair);
 					ImGui::TableNextRow();
 					ImGui::TableSetColumnIndex(0);
 					ImGui::AlignTextToFramePadding();
 					ImGui::TextUnformatted(pair_names[pair]);
-					for (int s = 0; s < ROUTE_SOURCES; s++)
-						if (ImGui::TableSetColumnIndex(s + 1))
+					for (int k = 0; k < nsrc; k++)
+						if (ImGui::TableSetColumnIndex(k + 1))
 						{
+							const int s = srcs[k];
 							ImGui::PushID(s);
 							// centre the radio under its header
 							float avail = ImGui::GetContentRegionAvail().x;
@@ -2057,7 +2098,7 @@ int main(int argc, char** argv)
 				ImGui::TextDisabled("Connect to read and change the port modes.");
 			} else {
 				const char* port_names[2] = { "In", "Out" };
-				for (int w = 0; w < 2; w++) {
+				for (int w = 0; w < (devices[driver_indicator].has_optical_out ? 2 : 1); w++) {
 					ImGui::PushID(200 + w);
 					ImGui::AlignTextToFramePadding();
 					ImGui::TextUnformatted(port_names[w]);

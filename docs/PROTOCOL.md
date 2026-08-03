@@ -107,6 +107,36 @@ at full level that no fader controls. Routing survives power cycles and the
 entity cannot be read, so BiD pushes its routing state on connect along with
 everything else.
 
+## What each model has
+
+The iD24 is the machine verified here; the rest of the family differs in
+ways that matter before a single byte is written. Decoded from the official
+app by [Monix](https://github.com/sKuhLight/monix) (their `docs/DEVICES.md`),
+and carried in `device_properties.h`:
+
+| Model | Mixer nodes | DAW returns | Cues | Alt spkr | Optical out | Loopback |
+|-------|-------------|-------------|------|----------|-------------|----------|
+| iD4   | none        | -           | -    | no       | no          | no  |
+| iD14  | 14          | 4           | 1    | no       | no          | no  |
+| iD22  | 16          | 6           | 2    | yes      | yes         | no  |
+| iD24  | 16          | 6           | 2    | yes      | yes         | yes (outs 10/11) |
+| iD44  | 30          | 10          | 4    | yes      | yes         | no  |
+| iD48  | 32          | 8           | ?    | yes      | yes         | yes (out 0x16) |
+
+Two consequences BiD has to respect. **The matrix spacing is not six
+everywhere**: a row spans two cells per stereo bus, so a device with one cue
+spans four, and writing at the iD24's spacing lands on the neighbouring row.
+On an iD14 MKII that reached the DAW-return rows and silenced the interface
+until it was replugged. **The routing scheme differs too**: the iD24 and
+iD48 compute a source code by formula, while the iD14, iD22 and iD44 look it
+up in a table with different base offsets, which Monix decoded but nobody has
+confirmed on hardware - so those codes are not written by BiD yet.
+
+Entity IDs (mixer `0x3c`, monitor `0x36`, routing `0x33` on the iD24) are
+assigned per USB descriptor and are not in the app binary. They are read
+from each device's descriptors; assuming the iD24's numbers elsewhere is a
+guess, which is why an unverified model gets nothing pushed on connect.
+
 ## The F buttons
 
 F1..F3 emit nothing over USB on their own. Without the official app they do

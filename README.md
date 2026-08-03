@@ -18,7 +18,12 @@ Unlike the original, BiD talks to the interface over its spare DFU interface rat
 
 ## Notes and To Do
 
-* Devices are detected by USB id; the iD24 is the one verified on hardware, the rest are inherited from the original project's support list
+* Devices are detected by USB id; the iD24 is the one verified on hardware. The
+  others carry a profile decoded from the official app — how many mixer nodes and
+  cues they have, whether they own alternate speakers, an optical output or a
+  loopback — and BiD hides what a model does not have. Until a model is confirmed
+  on hardware it is marked "protocol unverified" and nothing is written to it on
+  connect
   * If a new device gets released, please open an [Issue](https://github.com/baakhoff/BiD/issues) with your USB id and input/output counts
 * The protocol is mostly figured out, just needs verification/testing
   * Only the monitor section can be read back; the rest of the hardware is
@@ -174,6 +179,12 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
    * `BID_CONTROL_IFACE` forces the control interface: `=0` is the old
      exclusive mode that pauses audio, for models whose firmware refuses
      control on the spare interface (reported on the iD14 MKII in #26)
+   * Every model carries its own profile now: mixer nodes, DAW returns, how
+     many cues, whether it has alternate speakers, an optical output or a
+     loopback. Controls a model lacks are hidden or greyed instead of being
+     offered, the matrix spacing follows the model's bus count, and a model
+     whose protocol is not hardware-verified gets nothing written on connect
+     — an iD14 MKII was silenced by writes meant for an iD24 (#26)
    * BiD can start itself: "Start at login" in the menu writes an XDG
      autostart entry pointing at the very binary you are running, opening
      BiD hidden in the tray (`--tray`); "Connect on launch" opens the

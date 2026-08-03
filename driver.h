@@ -173,11 +173,17 @@ enum mixer_send {
 };
 #define MIXER_SENDS 6
 
+// How many cells one matrix row spans: two per stereo bus, so six on a
+// device with a main mix and two cues. The iD14 family has one cue, so
+// four - writing with the wrong spacing lands on a neighbour's row, which
+// is how an iD14 MKII got its DAW returns silenced (issue #26).
+inline int mixer_stride = MIXER_SENDS;
+
 void set_mixer_cell(int input, int send, float gain)
 {
   assert(gain>=0 && gain<=1);
   uint16_t v = float_to_u16(gain);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * MIXER_SENDS + send,
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * mixer_stride + send,
                                     0x3c00 | control_iface, (uint8_t*)&v, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
