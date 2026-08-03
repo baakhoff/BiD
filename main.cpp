@@ -1320,6 +1320,15 @@ int main(int argc, char** argv)
 				}
 				ImGui::PopStyleVar();
 				want_mix_tab = -1; // the state file's tab only needs forcing once
+				// A cue nothing can be pointed at is a mix you cannot hear:
+				// say so, rather than letting the faders imply otherwise.
+				if (current_mix > 0 && !devices[driver_indicator].routing_known) {
+					ImGui::PushFont(font, 13.0f);
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
+					ImGui::TextUnformatted("This mix cannot be heard on this model yet: pointing an output at it needs routing, whose codes are unverified. Menu > Routing has a way to help find them.");
+					ImGui::PopStyleColor();
+					ImGui::PopFont();
+				}
 				// keep one line free underneath for the version string
 				const float strip_h = ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing();
 				// strip anatomy, top to bottom: name, type-coloured chip, phase pill,
@@ -2057,6 +2066,31 @@ int main(int argc, char** argv)
 				ImGui::PopStyleColor();
 				ImGui::TextDisabled("Its source codes come from a table nobody has confirmed yet,");
 				ImGui::TextDisabled("and guessing them points outputs at nothing. Reports welcome.");
+				if (ImGui::TreeNode("Help find them")) {
+					ImGui::TextDisabled("Send one raw code to one output and hear what it plays.");
+					ImGui::TextDisabled("On the iD24 they run 0x1e..0x26; this model's are nearby.");
+					ImGui::TextDisabled("It writes to the hardware and sticks until you replug it.");
+					static int exp_out = 0, exp_code = 0x25;
+					ImGui::SetNextItemWidth(120.0f * main_scale);
+					ImGui::InputInt("output", &exp_out);
+					exp_out = ImClamp(exp_out, 0, ImMax(0, rdev.routing_outputs - 1));
+					ImGui::SetNextItemWidth(120.0f * main_scale);
+					ImGui::InputInt("code", &exp_code, 1, 16);
+					exp_code = ImClamp(exp_code, 0, 255);
+					ImGui::SameLine();
+					ImGui::TextDisabled("0x%02x", exp_code);
+					ImGui::BeginDisabled(!connected);
+					if (ImGui::Button("Send to output"))
+						set_route_raw(exp_out, (uint8_t)exp_code);
+					ImGui::SameLine();
+					if (ImGui::Button("Send to the pair")) {
+						int base = exp_out & ~1;
+						set_route_raw(base, (uint8_t)exp_code);
+						set_route_raw(base + 1, (uint8_t)(exp_code + 1));
+					}
+					ImGui::EndDisabled();
+					ImGui::TreePop();
+				}
 				ImGui::Spacing();
 			}
 			ImGui::TextDisabled("Each output pair plays one source.");
