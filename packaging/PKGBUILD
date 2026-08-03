@@ -8,16 +8,21 @@ url="https://github.com/baakhoff/BiD"
 license=('MIT')
 depends=('glfw' 'libusb' 'libglvnd' 'systemd-libs')
 makedepends=('cmake' 'gcc' 'make' 'pkgconf')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('2c404d252d7cd682b71f925531ba1d17fc2e4fe6fc285a3c95fab5a7b8b1d652')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        "imgui-1.92.4.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4.tar.gz")
+sha256sums=('2c404d252d7cd682b71f925531ba1d17fc2e4fe6fc285a3c95fab5a7b8b1d652'
+            '0e175d4d941112532549b418ced0bd546abe9024ecb9b5f431f8a67a2197b0ba')
 
 build() {
+	# imgui is handed over pre-fetched, so the build never touches the net
 	cmake -B build -S "BiD-$pkgver" \
 		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_INSTALL_PREFIX=/usr
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DFETCHCONTENT_SOURCE_DIR_IMGUI_EXTERNAL="$srcdir/imgui-1.92.4"
 	cmake --build build
 }
 
 package() {
 	DESTDIR="$pkgdir" cmake --install build
+	install -Dm644 "BiD-$pkgver/LICENSE.md" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
 }

@@ -1,0 +1,21 @@
+pkgbase = bid
+	pkgdesc = Mixer control panel for Audient iD audio interfaces
+	pkgver = 0.2.2
+	pkgrel = 1
+	url = https://github.com/baakhoff/BiD
+	arch = x86_64
+	license = MIT
+	makedepends = cmake
+	makedepends = gcc
+	makedepends = make
+	makedepends = pkgconf
+	depends = glfw
+	depends = libusb
+	depends = libglvnd
+	depends = systemd-libs
+	source = bid-0.2.2.tar.gz::https://github.com/baakhoff/BiD/archive/refs/tags/v0.2.2.tar.gz
+	source = imgui-1.92.4.tar.gz::https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4.tar.gz
+	sha256sums = 2c404d252d7cd682b71f925531ba1d17fc2e4fe6fc285a3c95fab5a7b8b1d652
+	sha256sums = 0e175d4d941112532549b418ced0bd546abe9024ecb9b5f431f8a67a2197b0ba
+
+pkgname = bid
