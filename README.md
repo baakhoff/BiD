@@ -149,6 +149,14 @@ then restart it with `systemctl --user restart wireplumber`. Desktop volume
 becomes a software gain, and the hardware level belongs to BiD and the
 physical knob alone.
 
+A practical companion for all of this is PavuControl (`pavucontrol`): it
+shows every device PipeWire offers, switches profiles (that is where
+`Pro Audio` lives), and picks the default output. Most usefully, its
+Configuration tab can turn a device **Off** entirely — disabling the HDMI
+outputs and webcam mics you never listen to prevents a whole class of
+sound problems, from apps waking up on the wrong device to defaults
+jumping after a replug, and leaves WirePlumber far less to juggle.
+
 ## Authors
 
 * [@baakhoff](https://github.com/baakhoff) — BiD
