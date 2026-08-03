@@ -180,6 +180,7 @@ static void apply_device_profile()
 {
 	mixer_stride = devices[driver_indicator].mixer_stride;
 	routing_outputs = devices[driver_indicator].routing_outputs;
+	route_scheme = devices[driver_indicator].route_scheme;
 	if (current_mix >= active_buses())
 		current_mix = 0;
 }
@@ -2062,10 +2063,18 @@ int main(int argc, char** argv)
 			const int npairs = rdev.has_loopback ? 4 : 3;
 			if (!devices[driver_indicator].routing_known) {
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
-				ImGui::TextUnformatted("Routing is not written on this model.");
+				ImGui::TextUnformatted(rdev.route_scheme == ROUTE_SCHEME_NONE
+					? "Routing is not written on this model."
+					: "Routing codes here are inherited, not confirmed.");
 				ImGui::PopStyleColor();
-				ImGui::TextDisabled("Its source codes come from a table nobody has confirmed yet,");
-				ImGui::TextDisabled("and guessing them points outputs at nothing. Reports welcome.");
+				if (rdev.route_scheme == ROUTE_SCHEME_NONE) {
+					ImGui::TextDisabled("Its source codes come from a table nobody has confirmed yet,");
+					ImGui::TextDisabled("and guessing them points outputs at nothing. Reports welcome.");
+				} else {
+					ImGui::TextDisabled("They come from MixiD, which was written on an iD14 - so they");
+					ImGui::TextDisabled("should fit this family. Clicking one writes it; nothing is sent");
+					ImGui::TextDisabled("on connect, and a replug undoes anything that goes wrong.");
+				}
 				if (ImGui::TreeNode("Help find them")) {
 					ImGui::TextDisabled("Send one raw code to one output and hear what it plays.");
 					ImGui::TextDisabled("On the iD24 they run 0x1e..0x26; this model's are nearby.");
@@ -2137,7 +2146,7 @@ int main(int argc, char** argv)
 								ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - rw) * 0.5f);
 							if (ImGui::RadioButton("", &route_state[pair], s)) {
 								// the loopback row lives on hardware pair 5: outs 10 and 11
-								if (connected && rdev.routing_known)
+								if (connected && rdev.route_scheme != ROUTE_SCHEME_NONE)
 									set_route_pair(pair == 3 ? 5 : pair, s);
 							};
 							ImGui::PopID();
@@ -2180,7 +2189,7 @@ int main(int argc, char** argv)
 			ImGui::Spacing();
 			if (ImGui::Button("Reset to defaults")) {
 				reset_routing();
-				if (connected && rdev.routing_known)
+				if (connected && rdev.route_scheme != ROUTE_SCHEME_NONE)
 					for (int p = 0; p < 4; p++)
 						set_route_pair(p == 3 ? 5 : p, route_state[p]);
 			}

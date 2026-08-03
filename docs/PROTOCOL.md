@@ -165,6 +165,29 @@ log showed. The six writes that did land carried iD24 source codes into a
 table-scheme device, which pointed the outputs at nothing: audio died until
 the interface was replugged, since routing survives a disconnect.
 
+### The iD14's own codes, which BiD had all along
+
+MixiD's original routing table was never wrong - it was written for a
+different machine. It is a per-output table for a **six-output** device,
+which is the iD14's shape, and MixiD was developed on an iD14:
+
+| Output | Main | Alt | Cue A | Cue B | DAW |
+|--------|------|-----|-------|-------|-----|
+| 0 (Main L) | `0x1b` | `0x1d` | `0x19` | `0x1a` | `0x00` |
+| 1 (Main R) | `0x1c` | `0x1e` | `0x19` | `0x1a` | `0x01` |
+| 2, 4 (L)   | `0x1b` | `0x1d` | `0x19` | `0x1a` | own index |
+| 3, 5 (R)   | `0x1c` | `0x1e` | `0x19` | `0x1a` | own index |
+
+So Main is `0x1b/0x1c`, Alt `0x1d/0x1e`, the cues carry one code for both
+halves, and DAW Thru is the output's own index - the same convention the
+iD24 uses. These codes sit just below the iD24's block (`0x1e..0x26`), which
+is exactly why writing them to an iD24 selected undefined sources: the
+symptom that made BiD replace the table in the first place. Both tables are
+right, each on its own family, and BiD now carries both.
+
+BiD offers the iD14 table when the user clicks a routing button, but does
+not push it on connect: it is inherited, not confirmed here.
+
 ## The F buttons
 
 F1..F3 emit nothing over USB on their own. Without the official app they do

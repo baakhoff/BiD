@@ -102,6 +102,34 @@ enum route_source {
 };
 #define ROUTE_SOURCES 5
 
+// Two families, two code tables. The iD24 and iD48 compute theirs; the
+// iD14 (and its MKII) use the table below, which is MixiD's original - and
+// which turns out never to have been wrong, only written for a different
+// machine. MixiD was developed on an iD14, and BiD replaced its table with
+// the iD24's after the codes selected undefined sources here. Both are
+// right, each on its own model.
+enum route_scheme {
+  ROUTE_SCHEME_NONE = 0, // codes unknown: BiD does not write routing
+  ROUTE_SCHEME_ID24,     // formula, hardware-verified here
+  ROUTE_SCHEME_ID14,     // MixiD's inherited table, six outputs
+};
+
+// From MixiD's routeToggle, one row per output, columns Main / Alt / Cue A /
+// Cue B / DAW. Main and Alt alternate by side; the cues carried a single
+// code for both halves in the original capture.
+inline uint8_t route_code_id14(int out, int source)
+{
+  int side = out & 1;
+  switch (source) {
+    case ROUTE_MAIN:  return 0x1b + side;
+    case ROUTE_ALT:   return 0x1d + side;
+    case ROUTE_CUE_A: return 0x19;
+    case ROUTE_CUE_B: return 0x1a;
+    case ROUTE_DAW:   return out;
+  }
+  return 0x1b + side;
+}
+
 inline uint8_t route_code(int out, int source)
 {
   int side = out & 1; // left or right half of the output's stereo pair
@@ -218,11 +246,15 @@ void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 // output index. 0..5 are the analog outputs (1/2, 3/4, phones), 8..9 the
 // optical pair, and 10..11 the loopback pair, whose signal comes back to
 // the computer as capture channels 11+12.
+// Which table this device speaks; set from its profile before any write.
+inline int route_scheme = ROUTE_SCHEME_ID24;
+
 void set_route(int out, int source)
 {
-  if (out < 0 || out >= routing_outputs)
+  if (out < 0 || out >= routing_outputs || route_scheme == ROUTE_SCHEME_NONE)
     return;
-  uint8_t code = route_code(out, source);
+  uint8_t code = route_scheme == ROUTE_SCHEME_ID14 ? route_code_id14(out, source)
+                                                   : route_code(out, source);
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 250);
   if (err < 0) {
     note_transfer_error(err);

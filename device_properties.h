@@ -54,6 +54,9 @@ struct device_properties {
 	// compute them by formula; the iD14, iD22 and iD44 look them up in a
 	// table nobody has confirmed, so BiD does not write routing there.
 	bool routing_known = false;
+	// Which code table this model speaks: 0 none, 1 the iD24's formula,
+	// 2 the iD14's table inherited from MixiD, which was written on one.
+	int route_scheme = 0;
 };
 
 static std::vector<device_properties> devices;
@@ -108,7 +111,9 @@ void setup_devices()
 	iD14.mixer_stride = 6;
 	iD14.routing_outputs = 6;
 	iD14.mixer_known = true;
-	iD14.routing_known = false;
+	iD14.routing_known = false; // not pushed on connect until confirmed
+	// MixiD's own table, from the machine it was developed on
+	iD14.route_scheme = 2;
 	iD14.outputs = 4;
 	iD14.digital_outputs = 0;
 	devices.push_back(iD14);
@@ -134,7 +139,9 @@ void setup_devices()
 	iD14MKII.mixer_stride = 6;
 	iD14MKII.routing_outputs = 6;
 	iD14MKII.mixer_known = true;
-	iD14MKII.routing_known = false;
+	iD14MKII.routing_known = false; // not pushed on connect until confirmed
+	// MixiD's own table, from the machine it was developed on
+	iD14MKII.route_scheme = 2;
 	iD14MKII.outputs = 4;
 	iD14MKII.digital_outputs = 0;
 	devices.push_back(iD14MKII);
@@ -168,6 +175,7 @@ void setup_devices()
 	iD24.protocol_verified = true;
 	iD24.mixer_known = true;
 	iD24.routing_known = true;
+	iD24.route_scheme = 1;
 	iD24.has_loopback = true; // outputs 10 and 11, back to the host
 	devices.push_back(iD24);
 
