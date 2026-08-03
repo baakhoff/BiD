@@ -789,11 +789,18 @@ static void sync_state_from_device()
 // connect we send what the window is showing. Without this a control does
 // nothing at all until it happens to be nudged, and until then the app and
 // the hardware quietly disagree.
-static void push_state_to_device()
+static bool push_state_to_device()
 {
+	// A device that refuses every write - the iD14 MKII does, on the
+	// interface the iD24 accepts - would otherwise freeze the app for a
+	// quarter second per transfer, forever. A wall of failures aborts.
+	int e0 = transfer_errors;
 	for (int m = 0; m < MIXER_BUSES; m++)
-		for (size_t i = 0; i < bar_value[m].size(); i++)
+		for (size_t i = 0; i < bar_value[m].size(); i++) {
 			send_channel(i, m);
+			if (transfer_errors - e0 > 12)
+				return false;
+		}
 	// The matrix can have more rows than the strips show - on the iD24 the
 	// last four are DAW returns 3..6 - and the hardware boots with cells
 	// open. Anything without a fader gets written to silence, or it plays
@@ -807,6 +814,7 @@ static void push_state_to_device()
 	for (int p = 0; p < 3; p++)
 		set_route_pair(p, route_state[p]);
 	set_route_pair(5, route_state[3]); // the loopback pair, outs 10 and 11
+	return transfer_errors - e0 <= 12;
 }
 
 // The whole connect ritual in one place: open the device, probe what it
@@ -814,6 +822,9 @@ static void push_state_to_device()
 // Connect button and by the retry that follows a suspend or a pulled cable.
 static bool reconnect_pending = false;
 static double next_retry = 0.0;
+// set when a device opened fine but refused the mixer commands: retrying
+// will not improve it, and the UI says so instead of freezing
+static bool transport_refused = false;
 // whether the clock entity answers rate reads; re-probed on every connect
 static bool devrate_probe = true;
 // what the optical ports are set to: [0] input, [1] output; 0 = ADAT,
@@ -828,6 +839,7 @@ static float dim_trim = -1.0f;
 static float alt_trim = -1.0f;
 static bool try_connect()
 {
+	transport_refused = false;
 	if (!driver_init(devices[driver_indicator].usb_id))
 		return false;
 	float probe;
@@ -852,7 +864,11 @@ static bool try_connect()
 		alt_trim = get_monitor_level(0x1700, &f) ? f : -1.0f;
 	}
 	devrate_probe = true;
-	push_state_to_device();
+	if (!push_state_to_device()) {
+		transport_refused = true;
+		driver_shutdown();
+		return false;
+	}
 	connected = true;
 	return true;
 }
@@ -995,7 +1011,7 @@ int main(int argc, char** argv)
 	opt_autostart = !autostart_path().empty() && access(autostart_path().c_str(), F_OK) == 0;
 	// connect by itself when asked to; a device not there yet - login
 	// often beats the USB bus - becomes the quiet retry until it is
-	if (opt_autoconnect && _dev >= 0 && !try_connect())
+	if (opt_autoconnect && _dev >= 0 && !try_connect() && !transport_refused)
 		reconnect_pending = true;
 	signal(SIGINT, quit_signal);
 	signal(SIGTERM, quit_signal);
@@ -1075,7 +1091,7 @@ int main(int argc, char** argv)
 		}
 		if (reconnect_pending && glfwGetTime() > next_retry) {
 			next_retry = glfwGetTime() + 2.0;
-			if (try_connect())
+			if (try_connect() || transport_refused)
 				reconnect_pending = false;
 		}
 		// The monitor level is the one control that gets watched while it
@@ -1751,7 +1767,7 @@ int main(int argc, char** argv)
 				else if (try_connect())
 					reconnect_pending = false;
 				else
-					ImGui::OpenPopup("No connection possible");
+					ImGui::OpenPopup(transport_refused ? "Device refuses control" : "No connection possible");
 			};
 			if (call_to_action)
 				ImGui::PopStyleColor(4);
@@ -1765,6 +1781,22 @@ int main(int argc, char** argv)
 				ImGui::Text("Make sure you have selected the correct driver and your usb permissions are correct.");
 				ImGui::Text("This can either be done by adding the usb device to the udev rules,");
 				ImGui::Text("or running BiD with sudo permissions.");
+				ImGui::Dummy(ImVec2(10, 20 * main_scale));
+				ImGui::Separator();
+				if (ImGui::Button("OK", ImVec2(120 * main_scale, 0))) { ImGui::CloseCurrentPopup(); }
+				ImGui::SetItemDefaultFocus();
+				ImGui::EndPopup();
+			}
+
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			if (ImGui::BeginPopupModal("Device refuses control", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+			{
+				ImGui::Text("The device opened, but did not accept mixer commands on its");
+				ImGui::Text("control interface, so BiD backed out instead of freezing.");
+				ImGui::Text("Some models only take control in the old exclusive mode:");
+				ImGui::Text("    BID_CONTROL_IFACE=0 BiD");
+				ImGui::Text("Audio from the computer pauses while connected in that mode.");
+				ImGui::Text("Either way, please report your model in an issue.");
 				ImGui::Dummy(ImVec2(10, 20 * main_scale));
 				ImGui::Separator();
 				if (ImGui::Button("OK", ImVec2(120 * main_scale, 0))) { ImGui::CloseCurrentPopup(); }

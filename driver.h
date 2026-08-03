@@ -14,9 +14,16 @@ static int control_iface = 0;
 // clean disconnect followed by a quiet retry.
 static bool driver_lost = false;
 
+// Counts every failed write, so a connect can notice it is talking to a
+// wall and back out instead of freezing. Writes carry a 250 ms timeout for
+// the same reason: firmware that neither answers nor rejects (seen on the
+// iD14 MKII's spare interface) must not hang the app forever.
+static int transfer_errors = 0;
+
 static void note_transfer_error(int err)
 {
   printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+  transfer_errors++;
   if (err == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
 }
@@ -123,10 +130,10 @@ void set_vinyl_dm(float volume) {
   uint16_t one = float_to_u16(volume);
   uint16_t zero = float_to_u16(0);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100, 0x3c00 | control_iface, (uint8_t*)&one, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0101, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00 | control_iface, (uint8_t*)&one, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100, 0x3c00 | control_iface, (uint8_t*)&one, 2, 250);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0101, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 250);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 250);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00 | control_iface, (uint8_t*)&one, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -139,8 +146,8 @@ void set_hp_volume(float volume) {
   // Feature unit 0x0c carries four output channels: 1 and 2 are the monitor
   // pair, 3 and 4 the headphones. Entity 0x0a, which this used to address,
   // declares no controls at all, so those writes went nowhere.
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 250);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -150,7 +157,7 @@ void set_speaker_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
   int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600 | control_iface, (uint8_t*)&vol, 2, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600 | control_iface, (uint8_t*)&vol, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -171,7 +178,7 @@ void set_mixer_cell(int input, int send, float gain)
   assert(gain>=0 && gain<=1);
   uint16_t v = float_to_u16(gain);
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * MIXER_SENDS + send,
-                                    0x3c00 | control_iface, (uint8_t*)&v, 2, 0);
+                                    0x3c00 | control_iface, (uint8_t*)&v, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -204,7 +211,7 @@ void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 void set_route(int out, int source)
 {
   uint8_t code = route_code(out, source);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 0);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -234,7 +241,7 @@ void set_bool_state(int mode)
 {
   int err = 0;
   masterToggle[mode] = !masterToggle[mode];
-  err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600 | control_iface, (uint8_t*)&masterToggle[mode], 1, 0);
+  err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600 | control_iface, (uint8_t*)&masterToggle[mode], 1, 250);
 
   if (err < 0) {
     note_transfer_error(err);
@@ -290,7 +297,7 @@ int get_monitor_byte(uint16_t wv, unsigned char *out)
 
 void set_monitor_byte(uint16_t wv, unsigned char v)
 {
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, &v, 1, 0);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, &v, 1, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -312,7 +319,7 @@ int get_monitor_level(uint16_t wv, float *out)
 void set_monitor_level(uint16_t wv, float volume)
 {
   uint16_t vol = float_to_u16(volume);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, (uint8_t*)&vol, 2, 0);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, (uint8_t*)&vol, 2, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -377,7 +384,7 @@ void set_optical_mode(int which, int mode)
   uint32_t v = (uint32_t)mode;
   uint16_t wv = which ? 0x0100 : 0x0000;
   uint16_t wi = (which ? 0x1400 : 0x0100) | control_iface;
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, wi, (uint8_t*)&v, 4, 0);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, wi, (uint8_t*)&v, 4, 250);
   if (err < 0) {
     note_transfer_error(err);
   }
@@ -390,7 +397,7 @@ void set_phase(int chan, bool on) //0 indexed
   if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
     return;
   phaseToggle[chan] = on;
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 0);
+  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 250);
 
   if (err < 0) {
     note_transfer_error(err);
