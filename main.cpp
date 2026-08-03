@@ -794,6 +794,13 @@ static bool push_state_to_device()
 	// A device that refuses every write - the iD14 MKII does, on the
 	// interface the iD24 accepts - would otherwise freeze the app for a
 	// quarter second per transfer, forever. A wall of failures aborts.
+	if (!devices[driver_indicator].protocol_verified) {
+		// Unverified model: connect must not write anything. The addresses
+		// here are the iD24's, and on another model they can land somewhere
+		// that mutes it until it is replugged.
+		printf("protocol unverified for this model: nothing pushed on connect\n");
+		return true;
+	}
 	int e0 = transfer_errors;
 	for (int m = 0; m < MIXER_BUSES; m++)
 		for (size_t i = 0; i < bar_value[m].size(); i++) {
@@ -1750,6 +1757,16 @@ int main(int argc, char** argv)
 						set_clock_source(asound_card, 1);
 					ImGui::EndPopup();
 				}
+			}
+			if (connected && !devices[driver_indicator].protocol_verified) {
+				ImGui::PushFont(font, 13.0f);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
+				const char* warn = "protocol unverified";
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(warn).x) * 0.5f);
+				ImGui::TextUnformatted(warn);
+				ImGui::PopStyleColor();
+				ImGui::PopFont();
+				hover_tip("This model's protocol has not been confirmed on hardware.\nBiD writes nothing on connect, and a control you move may\nland somewhere unintended. Reports welcome in the tracker.");
 			}
 			const bool call_to_action = !connected;
 			if (call_to_action) {

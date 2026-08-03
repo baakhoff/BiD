@@ -21,6 +21,13 @@ struct device_properties {
 	// app shows. The hardware boots with cells open, so rows without a fader
 	// are written to silence on connect; 0 means no such extra rows.
 	int matrix_inputs = 0;
+
+	// Whether this model's protocol has been confirmed on real hardware.
+	// Only a verified device gets the full state pushed on connect: the
+	// entity and cell addresses are the iD24's, and writing them blindly
+	// into a different model can silence its mixer, with only a replug to
+	// undo it - which is exactly what happened to an iD14 MKII (issue #26).
+	bool protocol_verified = false;
 };
 
 static std::vector<device_properties> devices;
@@ -87,6 +94,7 @@ void setup_devices()
 	// 16 matrix rows: mics, eight digi, then DAW returns 1..6 - the last
 	// four have no fader here and get silenced on connect
 	iD24.matrix_inputs = 16;
+	iD24.protocol_verified = true;
 	devices.push_back(iD24);
 
 	struct device_properties iD44;
