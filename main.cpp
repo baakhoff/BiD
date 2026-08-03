@@ -137,6 +137,25 @@ static void window_close()
 	window = nullptr;
 }
 
+// A fader position as the number an engineer thinks in. The hardware takes
+// an int16 of 1/256 dB with 0x8000 meaning silence, and BiD's 0..1 maps
+// straight onto that - so the top of the travel is unity and the bottom is
+// nothing, exactly as the official app's scale reads.
+static void db_label(char *out, size_t n, float v)
+{
+	if (v <= 0.0005f) {
+		snprintf(out, n, "-inf");
+		return;
+	}
+	float db = (-32768.0f + 32767.0f * v) / 256.0f;
+	if (db <= -100.0f)
+		snprintf(out, n, "%.0f", db);
+	else if (db <= -10.0f)
+		snprintf(out, n, "%.1f", db);
+	else
+		snprintf(out, n, "%+.1f", db);
+}
+
 // A delayed tooltip on whatever was drawn last: for buttons whose label
 // is an abbreviation rather than a name.
 static void hover_tip(const char* text)
@@ -1521,8 +1540,11 @@ int main(int argc, char** argv)
 						}
 					};
 					// level under the cursor while dragging, double click to unity
-					if (ImGui::IsItemActive())
-						ImGui::SetTooltip("%d", (int)(bar_value[current_mix][idx] * 100.0f + 0.5f));
+					if (ImGui::IsItemActive()) {
+						char db[16];
+						db_label(db, sizeof(db), bar_value[current_mix][idx]);
+						ImGui::SetTooltip("%s dB", db);
+					}
 					else
 						hover_tip("Double click: unity");
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -1534,6 +1556,24 @@ int main(int argc, char** argv)
 							if (partner >= 0)
 								send_channel(partner, current_mix);
 						}
+					}
+					{
+						// the scale a console prints beside its faders: unity at
+						// the top of the travel, silence at the bottom
+						ImDrawList* dl = ImGui::GetWindowDrawList();
+						ImVec2 fmin = ImGui::GetItemRectMin(), fmax = ImGui::GetItemRectMax();
+						ImU32 sc = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.28f));
+						const struct { float v; const char* t; } marks[] = {
+							{ 1.00f, "0" }, { 0.92f, "-10" }, { 0.84f, "-20" },
+							{ 0.69f, "-40" }, { 0.53f, "-60" }, { 0.0f, "\u221e" },
+						};
+						ImGui::PushFont(font, 10.0f);
+						for (const auto &m : marks) {
+							float y = fmax.y - 10.0f * main_scale - (fader_h - 20.0f * main_scale) * m.v;
+							ImVec2 ts = ImGui::CalcTextSize(m.t);
+							dl->AddText(ImVec2(fmin.x - ts.x - 3.0f * main_scale, y - ts.y * 0.5f), sc, m.t);
+						}
+						ImGui::PopFont();
 					}
 					ImGui::SameLine(0.0f, meter_gap);
 					{
@@ -1697,8 +1737,11 @@ int main(int argc, char** argv)
 					if (ImGui::VFaderFloat("##vMixMaster", ImVec2(fader_w, fader_h), &mix_master[current_mix], 0.0f, 1.0f, "%.2f")) {
 						if (connected) send_mix(current_mix);
 					};
-					if (ImGui::IsItemActive())
-						ImGui::SetTooltip("%d", (int)(mix_master[current_mix] * 100.0f + 0.5f));
+					if (ImGui::IsItemActive()) {
+						char db[16];
+						db_label(db, sizeof(db), mix_master[current_mix]);
+						ImGui::SetTooltip("%s dB", db);
+					}
 					else
 						hover_tip("This mix's master: scales everything it sends. Double click: unity");
 					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -1707,8 +1750,8 @@ int main(int argc, char** argv)
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					{
-						char vb[8];
-						snprintf(vb, sizeof(vb), "%d", (int)(mix_master[current_mix] * 100.0f + 0.5f));
+						char vb[16];
+						db_label(vb, sizeof(vb), mix_master[current_mix]);
 						ImGui::PushFont(font, 13.0f);
 						center_in_column(ImGui::CalcTextSize(vb).x);
 						ImGui::TextDisabled("%s", vb);
