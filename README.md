@@ -6,6 +6,8 @@ Audient ships no Linux software or driver for the iD range — BiD is the
 missing mixer: mixes and cues, routing, loopback, VU meters and the full
 monitor section, while audio keeps playing. Built on libusb, glfw and imgui.
 
+![The BiD mixer connected to an iD24](Desktop/screenshot.png)
+
 BiD is a fork of [MixiD](https://github.com/TheOnlyJoey/MixiD) by [@TheOnlyJoey](https://mastodon.online/@TheOnlyJoey), which did the original reverse engineering and protocol work this builds on.
 
 ## Description

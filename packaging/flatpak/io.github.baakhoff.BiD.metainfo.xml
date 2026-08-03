@@ -32,6 +32,10 @@
   <releases>
     <release version="0.2.2" date="2026-07-31"/>
   </releases>
-  <!-- Flathub wants at least one screenshot: take one of the mixer window
-       and add a <screenshots> block pointing at it before submitting -->
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/baakhoff/BiD/master/Desktop/screenshot.png</image>
+      <caption>The mixer: strips with meters, the mix tabs, and the monitor section</caption>
+    </screenshot>
+  </screenshots>
 </component>
