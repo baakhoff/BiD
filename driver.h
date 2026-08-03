@@ -261,19 +261,6 @@ void set_route(int out, int source)
   }
 }
 
-// Write a source code straight, without the model's table. For decoding a
-// family whose codes nobody knows: sweep a value, listen, write down what
-// each one plays. Routing survives a disconnect, so a replug is the undo.
-void set_route_raw(int out, uint8_t code)
-{
-  if (out < 0 || out >= routing_outputs)
-    return;
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
-}
-
 // Both halves of a stereo pair listen to the same source; pair 0 is outputs
 // 1 and 2, pair 2 the phones.
 void set_route_pair(int pair, int source)
