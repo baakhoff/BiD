@@ -713,6 +713,30 @@ static void set_clock_source(int card, int src)
 	if (system(cmd)) {}
 }
 
+// When no stream runs the kernel has no momentary rate to report, so ask
+// PipeWire what the graph is set to: the pin when one is set, the default
+// otherwise. Whatever plays next will run at this rate.
+static int read_graph_rate()
+{
+	FILE *p = popen("pw-metadata -n settings 0 2>/dev/null", "r");
+	if (!p)
+		return 0;
+	char line[256];
+	int rate = 0, forced = 0;
+	while (fgets(line, sizeof(line), p)) {
+		const char *vv = strstr(line, "value:'");
+		int v = 0;
+		if (!vv || sscanf(vv + 7, "%d", &v) != 1)
+			continue;
+		if (strstr(line, "'clock.force-rate'"))
+			forced = v;
+		else if (strstr(line, "'clock.rate'"))
+			rate = v;
+	}
+	pclose(p);
+	return forced > 0 ? forced : rate;
+}
+
 // A short kHz label: 48000 reads "48 kHz", 44100 reads "44.1 kHz".
 static void khz_label(char *out, size_t n, int hz)
 {
@@ -1035,6 +1059,10 @@ int main(int argc, char** argv)
 				else
 					devrate_probe = false;
 			}
+			// still nothing: the graph's configured rate is the honest
+			// answer for whatever plays next
+			if (sample_rate <= 0)
+				sample_rate = read_graph_rate();
 		}
 		// A device that stops answering - suspend stales the handle, or the
 		// cable came out - drops to offline and quietly retries until it is
