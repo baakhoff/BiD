@@ -45,7 +45,11 @@ static int driver_indicator = 0;
 static bool connected = false;
 static bool tray_active = false;
 static bool force_quit = false;
-std::vector<float> levels = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+// [0] monitor, [1] headphones. The monitor starts down and is either read
+// from the hardware or raised by hand; the headphones start halfway, or a
+// first connect would push a level of zero and leave someone deaf in their
+// own headphones wondering what broke.
+std::vector<float> levels = {0.0f,0.5f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 // One set of faders serves all three matrix buses; the tabs above the strips
 // pick which mix is being edited, and every mix keeps its own levels and pans.
 static std::vector <float> bar_value[MIXER_BUSES];
@@ -1786,14 +1790,20 @@ int main(int argc, char** argv)
 				}
 			}
 			if (connected && !devices[driver_indicator].protocol_verified) {
+				// Say which half is unproven. A model whose mixer entity and
+				// geometry came out of its own descriptors is in far better
+				// shape than one BiD is addressing purely by analogy.
+				const device_properties &wdev = devices[driver_indicator];
 				ImGui::PushFont(font, 13.0f);
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
-				const char* warn = "protocol unverified";
+				const char* warn = wdev.mixer_known ? "routing unverified" : "protocol unverified";
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(warn).x) * 0.5f);
 				ImGui::TextUnformatted(warn);
 				ImGui::PopStyleColor();
 				ImGui::PopFont();
-				hover_tip("This model's protocol has not been confirmed on hardware.\nBiD writes nothing on connect, and a control you move may\nland somewhere unintended. Reports welcome in the tracker.");
+				hover_tip(wdev.mixer_known
+					? "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not confirmed,\nso BiD does not write routing here. Reports welcome in the tracker."
+					: "This model's protocol has not been confirmed on hardware.\nBiD writes nothing on connect, and a control you move may\nland somewhere unintended. Reports welcome in the tracker.");
 			}
 			const bool call_to_action = !connected;
 			if (call_to_action) {
