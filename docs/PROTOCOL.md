@@ -133,9 +133,37 @@ up in a table with different base offsets, which Monix decoded but nobody has
 confirmed on hardware - so those codes are not written by BiD yet.
 
 Entity IDs (mixer `0x3c`, monitor `0x36`, routing `0x33` on the iD24) are
-assigned per USB descriptor and are not in the app binary. They are read
-from each device's descriptors; assuming the iD24's numbers elsewhere is a
-guess, which is why an unverified model gets nothing pushed on connect.
+assigned per USB descriptor and are not in the app binary, so they have to be
+read from each device.
+
+### What an iD14 MKII's descriptors say
+
+Read off real hardware (issue #26), against an iD24's for comparison:
+
+| | iD24 | iD14 MKII |
+|---|---|---|
+| Mixer unit | 60 = `0x3c`, **6 output channels** | 60 = `0x3c`, **6 output channels** |
+| Routing unit | 51 = `0x33`, **16 outputs** | 51 = `0x33`, **6 outputs** |
+| Monitor unit | 54 = `0x36` | 54 = `0x36` |
+| Output volumes | 12 = `0x0c` | 12 = `0x0c`, four channels |
+| Input gain + phase | 11 = `0x0b`, read/write | 11 = `0x0b`, read/write, ten channels |
+| Clock/rate | 62 = `0x3e` | 62 = `0x3e` |
+| HID interface | 3 | 3, named **Scrollcontrol** |
+
+Two lessons. The entity map is **the same family-wide**, so the mixer,
+monitor and phase work on the iD14 with the iD24's addresses. But the
+**matrix spacing is six on both** — it comes from the mixer unit's output
+channel count, not from how many cues the app exposes, and an earlier guess
+of four (from the iD14 having one cue) would have written every row onto its
+neighbour.
+
+The routing unit is where they part: sixteen outputs on the iD24 against
+**six** on the iD14, which has no optical output and no loopback. Writing the
+iD24's loopback pair (outputs 10 and 11) to an iD14 is out of range, and the
+firmware answers `LIBUSB_ERROR_IO` — two of them, exactly what the tester's
+log showed. The six writes that did land carried iD24 source codes into a
+table-scheme device, which pointed the outputs at nothing: audio died until
+the interface was replugged, since routing survives a disconnect.
 
 ## The F buttons
 

@@ -178,6 +178,10 @@ enum mixer_send {
 // four - writing with the wrong spacing lands on a neighbour's row, which
 // is how an iD14 MKII got its DAW returns silenced (issue #26).
 inline int mixer_stride = MIXER_SENDS;
+// Outputs the routing unit actually has; writing past it earns an IO error
+// from the firmware, which is how the iD14's six outputs announced
+// themselves when BiD tried to route the iD24's loopback pair.
+inline int routing_outputs = 16;
 
 void set_mixer_cell(int input, int send, float gain)
 {
@@ -216,6 +220,8 @@ void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 // the computer as capture channels 11+12.
 void set_route(int out, int source)
 {
+  if (out < 0 || out >= routing_outputs)
+    return;
   uint8_t code = route_code(out, source);
   int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 250);
   if (err < 0) {

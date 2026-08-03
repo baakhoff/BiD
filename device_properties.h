@@ -38,6 +38,22 @@ struct device_properties {
 	bool has_optical_out = true;
 	bool has_loopback = false;     // only the iD24 and iD48 define one
 	int daw_returns = 6;           // matrix rows fed by the computer
+	// Cells one matrix row spans: the mixer unit's output channel count in
+	// the USB descriptors. Six on both the iD24 and the iD14 MKII, whose
+	// descriptors were read off real hardware - it does NOT follow the cue
+	// count, which is what made an earlier guess of four wrong.
+	int mixer_stride = 6;
+	// How many outputs the routing unit carries: 16 on the iD24 (analog,
+	// optical, loopback), 6 on the iD14, which has the analog ones only.
+	// Writing past this is what answered with IO errors on issue #26.
+	int routing_outputs = 16;
+	// Whether the mixer entity and geometry are known for this model, from
+	// hardware or from its descriptors; the state push needs this much.
+	bool mixer_known = false;
+	// Whether the routing source codes are trustworthy. The iD24 and iD48
+	// compute them by formula; the iD14, iD22 and iD44 look them up in a
+	// table nobody has confirmed, so BiD does not write routing there.
+	bool routing_known = false;
 };
 
 static std::vector<device_properties> devices;
@@ -86,6 +102,13 @@ void setup_devices()
 	iD14.has_alt = false;
 	iD14.has_optical_out = false;
 	iD14.daw_returns = 4;
+	// from a real iD14 MKII's descriptors: mixer unit 60 with six output
+	// channels like the iD24's, but a routing unit carrying six outputs
+	// rather than sixteen, and no formula for its source codes
+	iD14.mixer_stride = 6;
+	iD14.routing_outputs = 6;
+	iD14.mixer_known = true;
+	iD14.routing_known = false;
 	iD14.outputs = 4;
 	iD14.digital_outputs = 0;
 	devices.push_back(iD14);
@@ -105,6 +128,13 @@ void setup_devices()
 	iD14MKII.has_alt = false;
 	iD14MKII.has_optical_out = false;
 	iD14MKII.daw_returns = 4;
+	// from a real iD14 MKII's descriptors: mixer unit 60 with six output
+	// channels like the iD24's, but a routing unit carrying six outputs
+	// rather than sixteen, and no formula for its source codes
+	iD14MKII.mixer_stride = 6;
+	iD14MKII.routing_outputs = 6;
+	iD14MKII.mixer_known = true;
+	iD14MKII.routing_known = false;
 	iD14MKII.outputs = 4;
 	iD14MKII.digital_outputs = 0;
 	devices.push_back(iD14MKII);
@@ -136,6 +166,8 @@ void setup_devices()
 	// four have no fader here and get silenced on connect
 	iD24.matrix_inputs = 16;
 	iD24.protocol_verified = true;
+	iD24.mixer_known = true;
+	iD24.routing_known = true;
 	iD24.has_loopback = true; // outputs 10 and 11, back to the host
 	devices.push_back(iD24);
 

@@ -174,9 +174,8 @@ static int active_buses()
 // Teach the driver this model's matrix spacing before anything is written.
 static void apply_device_profile()
 {
-	mixer_stride = (1 + devices[driver_indicator].cue_mixes) * 2;
-	if (mixer_stride < 2)
-		mixer_stride = 2;
+	mixer_stride = devices[driver_indicator].mixer_stride;
+	routing_outputs = devices[driver_indicator].routing_outputs;
 	if (current_mix >= active_buses())
 		current_mix = 0;
 }
@@ -811,11 +810,12 @@ static bool push_state_to_device()
 	// A device that refuses every write - the iD14 MKII does, on the
 	// interface the iD24 accepts - would otherwise freeze the app for a
 	// quarter second per transfer, forever. A wall of failures aborts.
-	if (!devices[driver_indicator].protocol_verified) {
-		// Unverified model: connect must not write anything. The addresses
-		// here are the iD24's, and on another model they can land somewhere
-		// that mutes it until it is replugged.
-		printf("protocol unverified for this model: nothing pushed on connect\n");
+	const device_properties &pdev = devices[driver_indicator];
+	if (!pdev.mixer_known) {
+		// A model whose mixer entity and geometry are unknown gets nothing:
+		// the addresses here are the iD24's, and elsewhere they can land
+		// somewhere that mutes the device until it is replugged.
+		printf("mixer layout unknown for this model: nothing pushed on connect\n");
 		return true;
 	}
 	int e0 = transfer_errors;
@@ -835,9 +835,15 @@ static bool push_state_to_device()
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
 	set_hp_volume(levels[1]);
-	for (int p = 0; p < 3; p++)
-		set_route_pair(p, route_state[p]);
-	set_route_pair(5, route_state[3]); // the loopback pair, outs 10 and 11
+	// Routing only where the source codes are known. The iD14 family looks
+	// them up in a table nobody has confirmed; writing the iD24's codes
+	// there pointed a tester's outputs at nothing (issue #26).
+	if (pdev.routing_known) {
+		for (int p = 0; p < 3; p++)
+			set_route_pair(p, route_state[p]);
+		if (pdev.has_loopback)
+			set_route_pair(5, route_state[3]);
+	}
 	return transfer_errors - e0 <= 12;
 }
 
@@ -2035,6 +2041,14 @@ int main(int argc, char** argv)
 				srcs[nsrc++] = ROUTE_CUE_B;
 			srcs[nsrc++] = ROUTE_DAW;
 			const int npairs = rdev.has_loopback ? 4 : 3;
+			if (!devices[driver_indicator].routing_known) {
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.64f, 0.16f, 1.00f));
+				ImGui::TextUnformatted("Routing is not written on this model.");
+				ImGui::PopStyleColor();
+				ImGui::TextDisabled("Its source codes come from a table nobody has confirmed yet,");
+				ImGui::TextDisabled("and guessing them points outputs at nothing. Reports welcome.");
+				ImGui::Spacing();
+			}
 			ImGui::TextDisabled("Each output pair plays one source.");
 			ImGui::SameLine();
 			ImGui::TextDisabled("(?)");
@@ -2079,7 +2093,7 @@ int main(int argc, char** argv)
 								ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - rw) * 0.5f);
 							if (ImGui::RadioButton("", &route_state[pair], s)) {
 								// the loopback row lives on hardware pair 5: outs 10 and 11
-								if (connected)
+								if (connected && rdev.routing_known)
 									set_route_pair(pair == 3 ? 5 : pair, s);
 							};
 							ImGui::PopID();
@@ -2122,7 +2136,7 @@ int main(int argc, char** argv)
 			ImGui::Spacing();
 			if (ImGui::Button("Reset to defaults")) {
 				reset_routing();
-				if (connected)
+				if (connected && rdev.routing_known)
 					for (int p = 0; p < 4; p++)
 						set_route_pair(p == 3 ? 5 : p, route_state[p]);
 			}
