@@ -152,6 +152,12 @@ physical knob alone.
 
 ### BiD
 
+* 0.2.3
+   * BiD can start itself: "Start at login" in the menu writes an XDG
+     autostart entry pointing at the very binary you are running, opening
+     BiD hidden in the tray (`--tray`); "Connect on launch" opens the
+     device by itself, retrying quietly until it appears — login often
+     beats the USB bus. Both sit in the menu as checkmarks
 * 0.2.2
    * One line installs it on any major distro: the installer picks apt, dnf,
      pacman or zypper, pulls the dependencies, builds the newest release,

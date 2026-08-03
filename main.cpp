@@ -27,6 +27,8 @@
 #include <cmath>
 #include <algorithm>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <climits>
 #include <dirent.h>
 #include <cctype>
 #include "driver.h"
@@ -226,20 +228,22 @@ static void send_mix(int m)
 // with. Nothing of that can be read out of the hardware, so a plain text
 // file per device, keyed by USB id, is the only memory there is. It lives
 // in $XDG_CONFIG_HOME/bid, or ~/.config/bid.
+static std::string config_base()
+{
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	if (xdg && *xdg)
+		return xdg;
+	const char *home = getenv("HOME");
+	if (!home || !*home)
+		return "";
+	return std::string(home) + "/.config";
+}
+
 static std::string state_path()
 {
-	if (devices.empty())
+	std::string base = config_base();
+	if (devices.empty() || base.empty())
 		return "";
-	std::string base;
-	const char *xdg = getenv("XDG_CONFIG_HOME");
-	if (xdg && *xdg) {
-		base = xdg;
-	} else {
-		const char *home = getenv("HOME");
-		if (!home || !*home)
-			return "";
-		base = std::string(home) + "/.config";
-	}
 	char name[40];
 	snprintf(name, sizeof(name), "/bid/state-%04x.conf", devices[driver_indicator].usb_id);
 	return base + name;
@@ -502,6 +506,79 @@ static void list_presets(std::vector<std::string>& out)
 	}
 	closedir(d);
 	std::sort(out.begin(), out.end());
+}
+
+// Two app settings, global rather than per device: whether launch connects
+// by itself (settings.conf), and whether login starts BiD at all - that
+// one is the XDG autostart file's existence, so it can never desync.
+static bool opt_autoconnect = false;
+static bool opt_autostart = false;
+
+static std::string settings_path()
+{
+	std::string base = config_base();
+	return base.empty() ? "" : base + "/bid/settings.conf";
+}
+
+static void save_settings()
+{
+	std::string path = settings_path();
+	if (path.empty())
+		return;
+	mkdir(path.substr(0, path.rfind('/')).c_str(), 0755);
+	FILE *f = fopen(path.c_str(), "w");
+	if (!f)
+		return;
+	fprintf(f, "bid-settings 1\nautoconnect %d\n", opt_autoconnect ? 1 : 0);
+	fclose(f);
+}
+
+static void load_settings()
+{
+	std::string path = settings_path();
+	if (path.empty())
+		return;
+	FILE *f = fopen(path.c_str(), "r");
+	if (!f)
+		return;
+	char key[16] = {0};
+	int ver = 0, ac = 0;
+	if (fscanf(f, "%15s %d", key, &ver) == 2 && !strcmp(key, "bid-settings")
+	    && fscanf(f, "%15s %d", key, &ac) == 2 && !strcmp(key, "autoconnect"))
+		opt_autoconnect = ac != 0;
+	fclose(f);
+}
+
+static std::string autostart_path()
+{
+	std::string base = config_base();
+	return base.empty() ? "" : base + "/autostart/bid.desktop";
+}
+
+// The autostart entry points at this very binary, so whichever build the
+// user runs is the build that greets the next login - hidden in the tray.
+static void set_autostart(bool on)
+{
+	std::string path = autostart_path();
+	if (path.empty())
+		return;
+	if (!on) {
+		remove(path.c_str());
+		return;
+	}
+	char self[PATH_MAX];
+	ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+	if (n <= 0)
+		return;
+	self[n] = 0;
+	mkdir(path.substr(0, path.rfind('/')).c_str(), 0755);
+	FILE *f = fopen(path.c_str(), "w");
+	if (!f)
+		return;
+	fprintf(f, "[Desktop Entry]\nType=Application\nName=BiD\n"
+	           "Comment=Open source Audient mixer\nExec=%s --tray\n"
+	           "Icon=bid\nTerminal=false\n", self);
+	fclose(f);
 }
 
 // Which ALSA card is this device? procfs, matched by USB id.
@@ -780,8 +857,13 @@ bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference va
 }
 
 // Main code
-int main(int, char**)
+int main(int argc, char** argv)
 {
+	// --tray: start hidden, the way the autostart entry launches us
+	bool start_hidden = false;
+	for (int a = 1; a < argc; a++)
+		if (!strcmp(argv[a], "--tray"))
+			start_hidden = true;
 	glfwSetErrorCallback(glfw_error_callback);
 	if (!glfwInit())
 		return 1;
@@ -835,9 +917,11 @@ int main(int, char**)
 
 	// Setup Platform/Renderer backends (window and backends are torn down and
 	// rebuilt together whenever BiD hides to the tray)
-	window_open();
-	if (window == nullptr)
-		return 1;
+	if (!start_hidden) {
+		window_open();
+		if (window == nullptr)
+			return 1;
+	}
 #ifdef __EMSCRIPTEN__
 	ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
 #endif
@@ -864,6 +948,13 @@ int main(int, char**)
 	//Tray icon: while one is available, closing the window hides BiD
 	//instead of quitting (quit through Menu->Quit or the tray-less close)
 	tray_active = tray_init() != 0;
+	if (!window && !tray_active) {
+		// no tray to live in: a hidden start falls back to a window,
+		// or the app would be running and unreachable
+		window_open();
+		if (window == nullptr)
+			return 1;
+	}
 
 	//Init all the device properties
 	setup_devices();
@@ -876,6 +967,12 @@ int main(int, char**)
 	    reset_routing();
 	    load_state();
 	}
+	load_settings();
+	opt_autostart = !autostart_path().empty() && access(autostart_path().c_str(), F_OK) == 0;
+	// connect by itself when asked to; a device not there yet - login
+	// often beats the USB bus - becomes the quiet retry until it is
+	if (opt_autoconnect && _dev >= 0 && !try_connect())
+		reconnect_pending = true;
 	signal(SIGINT, quit_signal);
 	signal(SIGTERM, quit_signal);
 
@@ -1024,6 +1121,17 @@ int main(int, char**)
 				{
 					if (ImGui::MenuItem("Driver Select")) {show_another_window = !show_another_window;};
 					if (ImGui::MenuItem("Routing")) {show_routing = !show_routing;};
+					ImGui::Separator();
+					if (ImGui::MenuItem("Connect on launch", NULL, opt_autoconnect)) {
+						opt_autoconnect = !opt_autoconnect;
+						save_settings();
+					}
+					hover_tip("Open the device by itself when BiD starts,\nretrying quietly if it is not there yet");
+					if (ImGui::MenuItem("Start at login", NULL, opt_autostart)) {
+						opt_autostart = !opt_autostart;
+						set_autostart(opt_autostart);
+					}
+					hover_tip("An autostart entry pointing at this very binary,\nopening BiD hidden in the tray");
 					ImGui::Separator();
 					if (ImGui::MenuItem("Quit")) {force_quit = true; glfwSetWindowShouldClose(window, GLFW_TRUE);};
 					ImGui::EndMenu();

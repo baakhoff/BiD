@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15...4.0)
 project(
   BiD
-  VERSION 0.2.2
+  VERSION 0.2.3
   LANGUAGES C CXX)
 
 add_definitions(-DVERSION_BID="${BiD_VERSION}") 
