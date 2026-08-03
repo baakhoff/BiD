@@ -51,10 +51,16 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     const float cx = (frame_bb.Min.x + frame_bb.Max.x) * 0.5f;
     const float slot_w = ImMax(5.0f, (frame_bb.Max.x - frame_bb.Min.x) * 0.15f);
     const ImRect slot(ImVec2(cx - slot_w * 0.5f, frame_bb.Min.y + 3.0f), ImVec2(cx + slot_w * 0.5f, frame_bb.Max.y - 3.0f));
+    // The ticks stand where a console prints its dB figures - unity, -10, -20,
+    // -40, -60, silence - and on the cap's travel, not the slot's, so a line
+    // meets the cap's centre line exactly when the fader is parked on it.
     const ImU32 tick_col = GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.09f));
-    for (int t = 0; t <= 4; t++)
+    const float grab_inset = 2.0f + style.GrabMinSize * 0.5f;
+    const float travel = (frame_bb.Max.y - frame_bb.Min.y) - grab_inset * 2.0f;
+    const float ticks[] = { 1.0f, 0.92f, 0.84f, 0.69f, 0.53f, 0.0f };
+    for (float t : ticks)
     {
-        float ty = slot.Min.y + (slot.Max.y - slot.Min.y) * (t / 4.0f);
+        float ty = frame_bb.Max.y - grab_inset - travel * t;
         dl->AddLine(ImVec2(frame_bb.Min.x + 3.0f, ty), ImVec2(frame_bb.Max.x - 3.0f, ty), tick_col, 1.0f);
     }
     dl->AddRectFilled(slot.Min, slot.Max, GetColorU32(ImVec4(0.040f, 0.045f, 0.055f, 1.0f)), slot_w * 0.5f);

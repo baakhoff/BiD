@@ -316,7 +316,7 @@ static void save_state_to(const std::string& path)
 		fprintf(f, " %d", phase_value[i] ? 1 : 0);
 	fprintf(f, "\nroute %d %d %d\n", route_state[0], route_state[1], route_state[2]);
 	fprintf(f, "link %d\n", out_link[0] ? 1 : 0);
-	fprintf(f, "phones %.6f\n", levels[1]);
+	fprintf(f, "phones %.6f\n", levels[1]); // no dial reads it now; the line stays so older files still parse
 	fprintf(f, "monitor %.6f\n", levels[0]);
 	fprintf(f, "tab %d\n", current_mix);
 	fprintf(f, "masters %.6f %.6f %.6f\n", mix_master[0], mix_master[1], mix_master[2]);
@@ -858,7 +858,12 @@ static bool push_state_to_device()
 			set_mixer_cell(i, s, 0.0f);
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
-	set_hp_volume(levels[1]);
+	// The headphone output is left wide open and kept that way: its level is
+	// the knob on the front of the box, and the digital gain in front of it is
+	// no place for a number the app no longer shows. BiD used to push a stored
+	// one here, and half travel on this scale is -64 dB - silent headphones
+	// with nothing on screen to explain them.
+	set_hp_volume(1.0f);
 	// Routing only where the source codes are known. The iD14 family looks
 	// them up in a table nobody has confirmed; writing the iD24's codes
 	// there pointed a tester's outputs at nothing (issue #26).
@@ -1368,6 +1373,12 @@ int main(int argc, char** argv)
 				const float below_fix = knob_d + 22.0f * main_scale;
 				const float meter_w = 8.0f * main_scale;
 				const float meter_gap = 4.0f * main_scale;
+				// the printed scale needs a gutter of its own. Without one the
+				// figures reach back into the strip on the left, and the first
+				// strip of a panel loses them off the edge entirely.
+				ImGui::PushFont(font, 10.0f);
+				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 4.0f * main_scale);
+				ImGui::PopFont();
 				// nine item gaps live between a strip's pieces; shorting them
 				// is what once pushed the LINK bar off the panel's foot
 				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 9.0f + style.ScrollbarSize + 8.0f * main_scale),
@@ -1529,7 +1540,10 @@ int main(int argc, char** argv)
 						hover_tip("Phase invert");
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
-					ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + (chan_w - (fader_w + meter_gap + meter_w)) * 0.5f));
+					// squeezed strips give the gutter up last: the meter may lean
+					// into the gap between strips before a figure is cut again
+					ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + scale_w
+						+ ImMax(0.0f, (chan_w - (scale_w + fader_w + meter_gap + meter_w)) * 0.5f)));
 					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
@@ -1567,11 +1581,15 @@ int main(int argc, char** argv)
 							{ 1.00f, "0" }, { 0.92f, "-10" }, { 0.84f, "-20" },
 							{ 0.69f, "-40" }, { 0.53f, "-60" }, { 0.0f, "\u221e" },
 						};
+						// the cap's centre stops short of both ends by half its own
+						// height, and the figures follow it there - printed against
+						// the fader's left edge, inside the gutter kept for them
+						const float cap_inset = 2.0f + style.GrabMinSize * 0.5f;
 						ImGui::PushFont(font, 10.0f);
 						for (const auto &m : marks) {
-							float y = fmax.y - 10.0f * main_scale - (fader_h - 20.0f * main_scale) * m.v;
+							float y = fmax.y - cap_inset - (fader_h - cap_inset * 2.0f) * m.v;
 							ImVec2 ts = ImGui::CalcTextSize(m.t);
-							dl->AddText(ImVec2(fmin.x - ts.x - 3.0f * main_scale, y - ts.y * 0.5f), sc, m.t);
+							dl->AddText(ImVec2((float)(int)(fmin.x - ts.x - 3.0f * main_scale), (float)(int)(y - ts.y * 0.5f)), sc, m.t);
 						}
 						ImGui::PopFont();
 					}
@@ -1911,8 +1929,10 @@ int main(int argc, char** argv)
 				ImGui::EndPopup();
 			}
 
-			// knobs: the monitor level is the hero, phones under it, and the
-			// toggle grid stays anchored to the bottom of the panel
+			// knobs: the monitor level is the only one here - the headphones
+			// answer to their own knob on the front of the box, and a second
+			// one in software could only fight it - and the toggle grid stays
+			// anchored to the bottom of the panel
 			auto caps_label = [&](const char* cs, float pt) {
 				ImGui::PushFont(font, pt);
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(cs).x) * 0.5f);
@@ -1922,9 +1942,8 @@ int main(int argc, char** argv)
 			const float btn_h = 42.0f * main_scale;
 			const float toggles_h = btn_h * 2.0f + style.ItemSpacing.y;
 			const float knob_big = 104.0f * main_scale;
-			const float knob_small = 72.0f * main_scale;
 			float knob_gap = ImMax((absY - ImGui::GetCursorPosY() - toggles_h - style.WindowPadding.y
-					- knob_big - knob_small - ImGui::GetTextLineHeightWithSpacing() * 4.0f) / 4.0f,
+					- knob_big - ImGui::GetTextLineHeightWithSpacing() * 2.0f) / 2.0f,
 				4.0f * main_scale);
 			ImGui::Dummy(ImVec2(0, knob_gap));
 			caps_label("MONITOR", 15.0f);
@@ -1935,15 +1954,6 @@ int main(int argc, char** argv)
 			}
 			hover_tip("Monitor level: follows the hardware knob");
 			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[0] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
-			ImGui::Dummy(ImVec2(0, knob_gap));
-			caps_label("PHONES", 15.0f);
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_small) * 0.5f);
-			if (ImGuiKnobs::Knob("##phones", &levels[1], 0.0f, 1.0f, 0.004f, "", ImGuiKnobVariant_WiperOnly, knob_small,
-					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
-				if (connected) set_hp_volume(levels[1]);
-			}
-			hover_tip("Headphone level");
-			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[1] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
 
 			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
 			const float grid_w = ImGui::GetContentRegionAvail().x;
