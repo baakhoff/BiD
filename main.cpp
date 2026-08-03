@@ -46,10 +46,14 @@ static bool connected = false;
 static bool tray_active = false;
 static bool force_quit = false;
 // [0] monitor, [1] headphones. The monitor starts down and is either read
-// from the hardware or raised by hand; the headphones start halfway, or a
-// first connect would push a level of zero and leave someone deaf in their
-// own headphones wondering what broke.
-std::vector<float> levels = {0.0f,0.5f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+// from the hardware or raised by hand; the headphones start wide open,
+// because this scale is dB and half of it is -64 - near enough to silence
+// to leave someone deaf in their own headphones wondering what broke.
+std::vector<float> levels = {0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+// Which output the one big knob is moving: 0 the monitors, 1 the phones.
+// Only boxes that share an encoder between the two are given the choice.
+static int knob_target = 0;
+static std::vector<bool> knob_focus = {true, false};
 // One set of faders serves all three matrix buses; the tabs above the strips
 // pick which mix is being edited, and every mix keeps its own levels and pans.
 static std::vector <float> bar_value[MIXER_BUSES];
@@ -858,12 +862,12 @@ static bool push_state_to_device()
 			set_mixer_cell(i, s, 0.0f);
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
-	// The headphone output is left wide open and kept that way: its level is
-	// the knob on the front of the box, and the digital gain in front of it is
-	// no place for a number the app no longer shows. BiD used to push a stored
-	// one here, and half travel on this scale is -64 dB - silent headphones
-	// with nothing on screen to explain them.
-	set_hp_volume(1.0f);
+	// The headphone gain is BiD's only where the box has no knob of its own
+	// for it. Elsewhere it is left wide open, so the knob on the front is the
+	// only thing setting the level: pushing a stored number into a control
+	// the window does not show is how headphones go silent with nothing on
+	// screen to explain them - half travel on this scale is -64 dB.
+	set_hp_volume(pdev.shared_monitor_knob ? levels[1] : 1.0f);
 	// Routing only where the source codes are known. The iD14 family looks
 	// them up in a table nobody has confirmed; writing the iD24's codes
 	// there pointed a tester's outputs at nothing (issue #26).
@@ -1929,10 +1933,12 @@ int main(int argc, char** argv)
 				ImGui::EndPopup();
 			}
 
-			// knobs: the monitor level is the only one here - the headphones
-			// answer to their own knob on the front of the box, and a second
-			// one in software could only fight it - and the toggle grid stays
-			// anchored to the bottom of the panel
+			// knobs: one big level, and on a box whose encoder serves the
+			// monitors and the headphones in turn, the pair of buttons that
+			// says which of them it is moving - the same pair the official
+			// app prints there. Where the headphones have a knob of their
+			// own, a second one in software could only fight it, so there is
+			// none. The toggle grid stays anchored to the bottom of the panel.
 			auto caps_label = [&](const char* cs, float pt) {
 				ImGui::PushFont(font, pt);
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(cs).x) * 0.5f);
@@ -1942,18 +1948,43 @@ int main(int argc, char** argv)
 			const float btn_h = 42.0f * main_scale;
 			const float toggles_h = btn_h * 2.0f + style.ItemSpacing.y;
 			const float knob_big = 104.0f * main_scale;
+			const bool shared_knob = devices[driver_indicator].shared_monitor_knob;
+			if (!shared_knob)
+				knob_target = 0;
+			const float focus_h = 30.0f * main_scale;
 			float knob_gap = ImMax((absY - ImGui::GetCursorPosY() - toggles_h - style.WindowPadding.y
-					- knob_big - ImGui::GetTextLineHeightWithSpacing() * 2.0f) / 2.0f,
+					- knob_big - (shared_knob ? focus_h + style.ItemSpacing.y : 0.0f)
+					- ImGui::GetTextLineHeightWithSpacing() * 2.0f) / 2.0f,
 				4.0f * main_scale);
 			ImGui::Dummy(ImVec2(0, knob_gap));
-			caps_label("MONITOR", 15.0f);
+			caps_label(knob_target ? "PHONES" : "MONITOR", 15.0f);
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - knob_big) * 0.5f);
-			if (ImGuiKnobs::Knob("##monitor", &levels[0], 0.0f, 1.0f, 0.004f, "", ImGuiKnobVariant_WiperOnly, knob_big,
+			if (ImGuiKnobs::Knob("##monitor", &levels[knob_target], 0.0f, 1.0f, 0.004f, "", ImGuiKnobVariant_WiperOnly, knob_big,
 					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
-				if (connected) set_speaker_volume(levels[0]);
+				if (connected) {
+					if (knob_target) set_hp_volume(levels[1]);
+					else             set_speaker_volume(levels[0]);
+				}
 			}
-			hover_tip("Monitor level: follows the hardware knob");
-			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[0] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
+			hover_tip(knob_target ? "Headphone level: BiD's own, ahead of the knob on the box"
+			                      : "Monitor level: follows the hardware knob");
+			{ char vb[8]; snprintf(vb, sizeof(vb), "%d", (int)(levels[knob_target] * 100.0f + 0.5f)); caps_label(vb, 17.0f); }
+			if (shared_knob) {
+				// a radio pair, not two toggles: the knob moves one output at
+				// a time, exactly as the button on the front of the box picks
+				knob_focus[0] = knob_target == 0;
+				knob_focus[1] = knob_target == 1;
+				float fw = (float)(int)((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x) * 0.5f);
+				ImGui::PushFont(font, 14.0f);
+				if (toggleButton("SPEAKERS###KnobSpk", ImVec2(fw, focus_h), knob_focus[0]))
+					knob_target = 0;
+				hover_tip("The knob moves the monitors");
+				ImGui::SameLine();
+				if (toggleButton("PHONES###KnobHp", ImVec2(fw, focus_h), knob_focus[1]))
+					knob_target = 1;
+				hover_tip("The knob moves the headphones");
+				ImGui::PopFont();
+			}
 
 			ImGui::SetCursorPosY(ImMax(ImGui::GetCursorPosY(), absY - toggles_h - style.WindowPadding.y));
 			const float grid_w = ImGui::GetContentRegionAvail().x;

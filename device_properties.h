@@ -57,6 +57,11 @@ struct device_properties {
 	// Which code table this model speaks: 0 none, 1 the iD24's formula,
 	// 2 the iD14's table inherited from MixiD, which was written on one.
 	int route_scheme = 0;
+	// Whether one encoder on the front serves both the monitors and the
+	// headphones, chosen by a button. Those models get the same pair of
+	// buttons under the knob here that the official app gives them; the
+	// iD24, with a knob for each, has no use for them.
+	bool shared_monitor_knob = false;
 };
 
 static std::vector<device_properties> devices;
@@ -95,13 +100,15 @@ void setup_devices()
 	iD14.usb_id = 0x0002;
 	iD14.mic_inputs = 2;
 	// The iD14 family is a smaller machine than the iD24: fourteen mixer
-	// nodes ending in four DAW returns, one cue mix instead of two, no
-	// alternate speakers and no optical output. Digital inputs 9 and 10
-	// are DAW 1+2, shown pinned as the output pair like on the iD24.
+	// nodes ending in four DAW returns, no alternate speakers and no optical
+	// output. Digital inputs 9 and 10 are DAW 1+2, shown pinned as the
+	// output pair like on the iD24. Both cues are there, though: the mixer
+	// unit carries six output channels, which is three stereo buses, and
+	// MixiD's table has a source code for each of them.
 	iD14.digital_inputs = 10;
 	iD14.monitor_pair = 8;
 	iD14.matrix_inputs = 14;
-	iD14.cue_mixes = 1;
+	iD14.cue_mixes = 2;
 	iD14.has_alt = false;
 	iD14.has_optical_out = false;
 	iD14.daw_returns = 4;
@@ -122,14 +129,15 @@ void setup_devices()
 	iD14MKII.name = "iD14 MKII";
 	iD14MKII.usb_id = 0x0008;
 	iD14MKII.mic_inputs = 2;
-	// The iD14 family is a smaller machine than the iD24: fourteen mixer
-	// nodes ending in four DAW returns, one cue mix instead of two, no
-	// alternate speakers and no optical output. Digital inputs 9 and 10
-	// are DAW 1+2, shown pinned as the output pair like on the iD24.
+	// As the iD14 above, and its official app is where the cue count was
+	// settled: it prints CUE A and CUE B, matching the six mixer channels.
 	iD14MKII.digital_inputs = 10;
 	iD14MKII.monitor_pair = 8;
 	iD14MKII.matrix_inputs = 14;
-	iD14MKII.cue_mixes = 1;
+	iD14MKII.cue_mixes = 2;
+	// its monitor knob is shared with the headphones, so the official app
+	// prints a speaker and a headphone button to say which one it moves
+	iD14MKII.shared_monitor_knob = true;
 	iD14MKII.has_alt = false;
 	iD14MKII.has_optical_out = false;
 	iD14MKII.daw_returns = 4;

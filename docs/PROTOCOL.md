@@ -117,17 +117,18 @@ and carried in `device_properties.h`:
 | Model | Mixer nodes | DAW returns | Cues | Alt spkr | Optical out | Loopback |
 |-------|-------------|-------------|------|----------|-------------|----------|
 | iD4   | none        | -           | -    | no       | no          | no  |
-| iD14  | 14          | 4           | 1    | no       | no          | no  |
+| iD14  | 14          | 4           | 2 *  | no       | no          | no  |
 | iD22  | 16          | 6           | 2    | yes      | yes         | no  |
 | iD24  | 16          | 6           | 2    | yes      | yes         | yes (outs 10/11) |
 | iD44  | 30          | 10          | 4    | yes      | yes         | no  |
 | iD48  | 32          | 8           | ?    | yes      | yes         | yes (out 0x16) |
 
-Two consequences BiD has to respect. **The matrix spacing is not six
-everywhere**: a row spans two cells per stereo bus, so a device with one cue
-spans four, and writing at the iD24's spacing lands on the neighbouring row.
-On an iD14 MKII that reached the DAW-return rows and silenced the interface
-until it was replugged. **The routing scheme differs too**: the iD24 and
+\* Monix's decode gives the iD14 a single cue. Three things say otherwise and
+BiD offers two: its mixer unit carries six output channels, which is three
+stereo buses; MixiD's routing table, written on an iD14, has a source code
+for cue A *and* cue B; and the official app on an iD14 MKII prints both.
+
+One consequence BiD has to respect. **The routing scheme differs**: the iD24 and
 iD48 compute a source code by formula, while the iD14, iD22 and iD44 look it
 up in a table with different base offsets, which Monix decoded but nobody has
 confirmed on hardware - so those codes are not written by BiD yet.
@@ -153,9 +154,10 @@ Read off real hardware (issue #26), against an iD24's for comparison:
 Two lessons. The entity map is **the same family-wide**, so the mixer,
 monitor and phase work on the iD14 with the iD24's addresses. But the
 **matrix spacing is six on both** — it comes from the mixer unit's output
-channel count, not from how many cues the app exposes, and an earlier guess
-of four (from the iD14 having one cue) would have written every row onto its
-neighbour.
+channel count, and an earlier guess of four, reasoned from a cue count the
+iD14 turned out not to have, would have written every row onto its
+neighbour. Six output channels is three stereo buses, which is where the
+iD14's second cue came back from.
 
 The routing unit is where they part: sixteen outputs on the iD24 against
 **six** on the iD14, which has no optical output and no loopback. Writing the
@@ -164,6 +166,18 @@ firmware answers `LIBUSB_ERROR_IO` — two of them, exactly what the tester's
 log showed. The six writes that did land carried iD24 source codes into a
 table-scheme device, which pointed the outputs at nothing: audio died until
 the interface was replugged, since routing survives a disconnect.
+
+The output volume unit is worth a line of its own. On the MKII, feature unit
+`0x0c` declares volume on channels 1 to 4 and nothing on 5 and 6: 1 and 2 are
+the monitors, 3 and 4 the headphones. That gain sits *ahead* of the analogue
+one, and the MKII has a single encoder that serves the monitors or the
+headphones depending on a button - which is why its official app prints a
+speaker and a headphone button under the knob, and why BiD prints the same
+pair there and moves the matching level. Boxes with a headphone knob of their
+own get no such control: BiD opens `0x0c` channels 3 and 4 wide on connect
+and leaves the level to the hardware. Note the scale is dB, not a fraction -
+half travel is about -64 dB, which is silence with the knob apparently
+half up.
 
 ### The iD14's own codes, which BiD had all along
 
