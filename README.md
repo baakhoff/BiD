@@ -1,6 +1,10 @@
-# BiD
+# BiD — Audient iD software for Linux
 
-Unofficial Linux control panel for the Audient iD series interfaces based on libusb, glfw and imgui.
+Unofficial control panel and mixer software for the Audient iD series USB
+audio interfaces on Linux: iD4, iD14, iD14 MKII, iD22, iD24, iD44 and iD48.
+Audient ships no Linux software or driver for the iD range — BiD is the
+missing mixer: mixes and cues, routing, loopback, VU meters and the full
+monitor section, while audio keeps playing. Built on libusb, glfw and imgui.
 
 BiD is a fork of [MixiD](https://github.com/TheOnlyJoey/MixiD) by [@TheOnlyJoey](https://mastodon.online/@TheOnlyJoey), which did the original reverse engineering and protocol work this builds on.
 
