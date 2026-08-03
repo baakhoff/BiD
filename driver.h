@@ -428,9 +428,17 @@ int driver_init(uint16_t deviceid)
   // keeps running while BiD is connected. Devices without a spare
   // interface fall back to the old exclusive grab of interface 0.
   control_iface = find_control_interface(libusb_get_device(devh));
-  if (control_iface < 0) {
-    printf("no spare control interface found, grabbing interface 0 (audio pauses while connected)\n");
+  // The spare-interface trick is verified on the iD24; other models may
+  // expose the interface yet refuse control traffic on it (every transfer
+  // answers LIBUSB_ERROR_IO). BID_CONTROL_IFACE forces the choice - 0 is
+  // the old exclusive mode that pauses audio but worked for MixiD.
+  const char *forced = getenv("BID_CONTROL_IFACE");
+  if (forced && *forced)
+    control_iface = atoi(forced);
+  if (control_iface < 0)
     control_iface = 0;
+  if (control_iface == 0) {
+    printf("using interface 0 exclusively (audio pauses while connected)\n");
     err = libusb_set_auto_detach_kernel_driver(devh, 1);
     if (err < 0) {
       printf("libusb_set_auto_detach_kernel_driver failed: %s\n", libusb_error_name(err));
@@ -440,6 +448,8 @@ int driver_init(uint16_t deviceid)
       libusb_exit(NULL);
       return false;
     }
+  } else {
+    printf("control over spare interface %d\n", control_iface);
   }
   err = libusb_claim_interface(devh, control_iface);
   if (err < 0) {
