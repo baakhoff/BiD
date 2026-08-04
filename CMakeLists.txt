@@ -65,7 +65,8 @@ add_executable(BiD main.cpp imgui-knobs.cpp imgui-custom.cpp tray.c)
 
 # Make sure you link your targets with this command. It can also link libraries and
 # even flags, so linking a target that does not exist will not give a configure-time error.
-target_link_libraries(BiD PRIVATE imgui glfw ${OPENGL_LIBRARIES} ${LIBUSB_LIBRARIES})
+find_package(Threads REQUIRED)
+target_link_libraries(BiD PRIVATE imgui glfw ${OPENGL_LIBRARIES} ${LIBUSB_LIBRARIES} Threads::Threads)
 
 if (SDBUS_FOUND)
 	target_compile_definitions(BiD PRIVATE HAVE_TRAY)

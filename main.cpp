@@ -31,6 +31,8 @@
 #include <climits>
 #include <dirent.h>
 #include <cctype>
+#include <thread>
+#include <atomic>
 #include "driver.h"
 #include "tray.h"
 
@@ -621,11 +623,13 @@ static void list_presets(std::vector<std::string>& out)
 	std::sort(out.begin(), out.end());
 }
 
-// Two app settings, global rather than per device: whether launch connects
-// by itself (settings.conf), and whether login starts BiD at all - that
-// one is the XDG autostart file's existence, so it can never desync.
+// App settings, global rather than per device: whether launch connects
+// by itself, whether BiD claims the system output (settings.conf), and
+// whether login starts BiD at all - that one is the XDG autostart file's
+// existence, so it can never desync.
 static bool opt_autoconnect = false;
 static bool opt_autostart = false;
+static bool opt_sysout = false;
 
 static std::string settings_path()
 {
@@ -642,7 +646,8 @@ static void save_settings()
 	FILE *f = fopen(path.c_str(), "w");
 	if (!f)
 		return;
-	fprintf(f, "bid-settings 1\nautoconnect %d\n", opt_autoconnect ? 1 : 0);
+	fprintf(f, "bid-settings 1\nautoconnect %d\nsysout %d\n",
+		opt_autoconnect ? 1 : 0, opt_sysout ? 1 : 0);
 	fclose(f);
 }
 
@@ -655,11 +660,94 @@ static void load_settings()
 	if (!f)
 		return;
 	char key[16] = {0};
-	int ver = 0, ac = 0;
+	int ver = 0, ac = 0, so = 0;
 	if (fscanf(f, "%15s %d", key, &ver) == 2 && !strcmp(key, "bid-settings")
-	    && fscanf(f, "%15s %d", key, &ac) == 2 && !strcmp(key, "autoconnect"))
+	    && fscanf(f, "%15s %d", key, &ac) == 2 && !strcmp(key, "autoconnect")) {
 		opt_autoconnect = ac != 0;
+		// later arrival: a file without the line keeps the default
+		if (fscanf(f, "%15s %d", key, &so) == 2 && !strcmp(key, "sysout"))
+			opt_sysout = so != 0;
+	}
 	fclose(f);
+}
+
+// Claiming the system output: switch the Audient card to the sound
+// server's Pro Audio profile and make it the default sink. One honest
+// multichannel output instead of the invented stereo splits - and since
+// the desktop's output menu offers every profile as a clickable entry, a
+// misclick there flips the card right back, which is why the claim is
+// reasserted on every launch and every connect rather than made once.
+// All through pactl in a worker thread: PipeWire remembers the choice,
+// and a system without pactl or the profile quietly declines.
+static std::atomic<int> sysout_state{0}; // indexes sysout_note below
+
+static std::string run_read(const char* cmd)
+{
+	std::string out;
+	FILE *p = popen(cmd, "r");
+	if (!p)
+		return out;
+	char buf[256];
+	size_t got;
+	while ((got = fread(buf, 1, sizeof(buf), p)) > 0)
+		out.append(buf, got);
+	pclose(p);
+	return out;
+}
+
+// Second tab-separated field of the first listing line holding both
+// needles (the second may be null), or empty.
+static std::string pactl_find(const std::string& listing, const char* what, const char* also)
+{
+	size_t at = 0;
+	while (at < listing.size()) {
+		size_t end = listing.find('\n', at);
+		if (end == std::string::npos)
+			end = listing.size();
+		std::string line = listing.substr(at, end - at);
+		if (line.find(what) != std::string::npos
+		    && (!also || line.find(also) != std::string::npos)) {
+			size_t a = line.find('\t');
+			if (a == std::string::npos)
+				return "";
+			size_t b = line.find('\t', a + 1);
+			return line.substr(a + 1, b == std::string::npos ? std::string::npos : b - a - 1);
+		}
+		at = end + 1;
+	}
+	return "";
+}
+
+static void sysout_claim()
+{
+	if (sysout_state == 1)
+		return;
+	sysout_state = 1;
+	std::thread([]{
+		if (run_read("command -v pactl 2>/dev/null").empty()) {
+			sysout_state = 3;
+			return;
+		}
+		std::string card = pactl_find(run_read("pactl list short cards 2>/dev/null"), "usb-Audient", NULL);
+		if (card.empty()) {
+			sysout_state = 4;
+			return;
+		}
+		run_read(("pactl set-card-profile '" + card + "' pro-audio 2>/dev/null").c_str());
+		// the new sinks arrive a beat after the profile flips
+		std::string sink;
+		for (int i = 0; i < 25 && sink.empty(); i++) {
+			sink = pactl_find(run_read("pactl list short sinks 2>/dev/null"), "usb-Audient", "pro-output");
+			if (sink.empty())
+				usleep(100000);
+		}
+		if (sink.empty()) {
+			sysout_state = 5;
+			return;
+		}
+		run_read(("pactl set-default-sink '" + sink + "' 2>/dev/null").c_str());
+		sysout_state = 2;
+	}).detach();
 }
 
 static std::string autostart_path()
@@ -1011,6 +1099,8 @@ static bool try_connect()
 		return false;
 	}
 	connected = true;
+	if (opt_sysout)
+		sysout_claim();
 	return true;
 }
 
@@ -1151,6 +1241,8 @@ int main(int argc, char** argv)
 	}
 	load_settings();
 	opt_autostart = !autostart_path().empty() && access(autostart_path().c_str(), F_OK) == 0;
+	if (opt_sysout)
+		sysout_claim();
 	// connect by itself when asked to; a device not there yet - login
 	// often beats the USB bus - becomes the quiet retry until it is
 	if (opt_autoconnect && _dev >= 0 && !try_connect() && !transport_refused)
@@ -1323,6 +1415,23 @@ int main(int argc, char** argv)
 						set_autostart(opt_autostart);
 					}
 					hover_tip("An autostart entry pointing at this very binary,\nopening BiD hidden in the tray");
+					if (ImGui::MenuItem("Claim the system output", NULL, opt_sysout)) {
+						opt_sysout = !opt_sysout;
+						save_settings();
+						if (opt_sysout)
+							sysout_claim();
+					}
+					hover_tip("Switch the Audient card to the sound server's Pro Audio\nprofile and make it the default output, on every launch and\nconnect: one honest multichannel output instead of the\ninvented stereo splits, reclaimed when a misclick in the\ndesktop's output menu flips it back. Needs PipeWire; without\nit this quietly does nothing. Turning it off changes nothing\nback.");
+					{
+						// quiet when all is well; the failures explain themselves
+						static const char* sysout_note[] = { NULL, "claiming the output...", NULL,
+							"pactl not found - this needs PipeWire",
+							"the sound system sees no Audient card",
+							"the Pro Audio profile did not take" };
+						const char* note = opt_sysout ? sysout_note[sysout_state] : NULL;
+						if (note)
+							ImGui::MenuItem(note, NULL, false, false);
+					}
 					ImGui::Separator();
 					if (ImGui::MenuItem("Quit")) {force_quit = true; glfwSetWindowShouldClose(window, GLFW_TRUE);};
 					ImGui::EndMenu();
