@@ -201,11 +201,12 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
      mislabelled as Alt. Found by ear, one beep per candidate code,
      verified left/right on the speakers and the phones alike; the whole
      hunt and the corrected code table are in docs/PROTOCOL.md. The same
-     hunt, with the monitors physically plugged into the alt jacks, then
-     mapped Alt: 0x1c/0x1d puts the main mix there in stereo, but as a
-     raw tap the volume knob does not touch — the device offers no
-     gated alt source at all, so the official ALT switching is most
-     likely done in software, still to be captured
+     hunt, with the monitors plugged into the alt jacks and — the detail
+     that hid it all night — the knob verifiably up, then found Alt's
+     real pair too: 0x27/0x28, silent until the ALT button, then the
+     monitor mix at the knob's level while the mains mute. Real A/B
+     speaker switching, plus two raw fixed-level taps of the main bus
+     documented along the way
    * The iD14 family gets its second cue back and, on the MKII, the shared
      encoder's SPEAKERS/PHONES buttons under the knob, like the official
      console. The headphone level is read from the device on connect

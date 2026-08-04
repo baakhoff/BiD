@@ -2499,9 +2499,9 @@ int main(int argc, char** argv)
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip(
 					"Main Mix is the monitor section's feed: the volume knob, Dim and Cut\n"
-					"apply on any output carrying it, phones included. Alt Spkr puts the\n"
-					"main mix on the alt jacks - on the iD24 at a fixed level the knob\n"
-					"does not touch, so mind the amplifier volume. The cues are\n"
+					"apply on any output carrying it, phones included. Alt Spkr is that\n"
+					"same feed for a second set of speakers: silent until Alt is pressed,\n"
+					"then playing at the knob's level while the mains mute. The cues are\n"
 					"separate mixes, clear of the monitor section, so the speaker buttons\n"
 					"leave them alone and the Phones dial sets the phones' level. DAW Thru\n"
 					"comes straight from the computer at full level - no control at all.\n"

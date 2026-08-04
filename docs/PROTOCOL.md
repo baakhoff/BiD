@@ -77,37 +77,33 @@ what that output plays:
                NOT a stereo pair, though BiD long wrote them as one
     main mix   0x25 left half of the pair, 0x26 right — the monitor
                section's feed, so volume, dim and cut ride along
-    alt        0x1c / 0x1d    stereo main mix on the alt outputs - but a
-               RAW tap: the volume knob, the alt trim and the ALT toggle
-               all leave it untouched, and 0x29/0x2a is a second tap of
-               the same nature. The monitor-processed feed (0x25/0x26)
-               only exists on outputs 0/1, and nothing in 0x00..0x30
-               behaves as a gated alt source. Feature unit 0x0c's
-               channels 3/4 do not touch these jacks either - the output
-               gains sit inside the monitor path, as the MKII showed,
-               and a raw tap bypasses them all. So there is no volume
-               handle over the alt outputs reachable from here at all.
-               Proper ALT - silent until pressed, mains muting, the alt
-               trim as its level, all of which the monitor section's
-               stored alt trim (0x36 selector 0x17) clearly exists for -
-               must be implemented by the official app through selectors
-               still unknown: a Windows USB capture of the app assigning
-               Alt Spkr, pressing ALT, moving the knob and the trim is
-               the one measurement left. 0x1e/0x1f, the old "alt" label,
-               is cue A.
+    alt        0x27 / 0x28    the alt speaker feed, one slot above Main:
+               a true stereo pair, ear-verified, silent until the ALT
+               toggle (0x36 selector 0x0c) engages, then playing the
+               monitor mix at the knob's level while 0x25/0x26 mutes.
+               It hid from every early hunt behind a turned-down knob.
+               0x1e/0x1f, the old "alt" label, is cue A
 
-               Late corrections from the same night: 0x25/0x26 DOES work
-               on the alt outputs, knob-controlled, while ALT is off -
-               the earlier "silent" reading was a false negative from a
-               quiet beep stacked on a turned-down knob. The ALT toggle
-               (0x36 selector 0x0c) mutes the monitor feed on every
-               output carrying it, alt outs included, rather than
-               steering it. The stored alt trim reads back 0x0000 -
-               silence - and refuses every write shape tried (u16 and
-               byte, channels 0/1/2/16), so if a trim-gated alt feed
-               exists it is inaudible until the official app's write for
-               that trim is captured. The monitor entity also answers on
-               selectors 0x01, 0x08 and 0x15, contents unknown
+    raw taps   0x1c/0x1d and 0x29/0x2a play the main bus in stereo
+               OUTSIDE the monitor section: no knob, no dim, no cut, no
+               alt - full path level always. 0x22 is a third, stranger
+               one. Useful as fixed-level line feeds, dangerous into an
+               amplifier
+
+The long alt hunt earned some lessons worth keeping. 0x25/0x26 works on
+the alt outputs too, knob and all, while ALT is off - an early "silent"
+reading there was a quiet test beep stacked on a turned-down knob, and
+that same stacking hid 0x27/0x28 itself for most of a night: sweep with
+the knob verifiably up. The ALT toggle gates complementarily - engaging
+it mutes every output carrying 0x25/0x26 and opens every output carrying
+0x27/0x28 - which is the whole A/B mechanism in hardware. The stored
+"alt trim" (0x36 selector 0x17) reads 0x0000 and refuses every write
+shape tried, yet the alt feed plays regardless, so whatever that
+selector holds it is not this path's gain; the official app's trim, if
+it has one, remains for a Windows capture to reveal. The monitor entity
+also answers on selectors 0x01, 0x08 and 0x15 with contents unknown,
+and codes 0x52/0x53 emitted something like a square wave - a test tone
+generator, perhaps - flagged for a braver session
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on

@@ -135,15 +135,13 @@ inline uint8_t route_code(int out, int source)
   int side = out & 1; // left or right half of the output's stereo pair
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
-    // Found by ear on the alt jacks: 0x1c/0x1d carries the main mix in
-    // stereo there - but RAW: outside the monitor section, so neither
-    // the volume knob nor the alt trim nor the ALT toggle touches it,
-    // and 0x29/0x2a proved to be a second tap of the same nature. No
-    // monitor-processed alt source answered anywhere in 0x00..0x30; the
-    // official app most likely implements ALT by rerouting in software,
-    // still uncaptured. Until then Alt means "main mix on the alt
-    // jacks, fixed level - mind the amplifier" (see PROTOCOL.md).
-    case ROUTE_ALT:   return 0x1c + side;
+    // Ear-verified like the cues before it: 0x27/0x28 is the alt feed,
+    // one slot above Main - a true stereo pair that is silent until the
+    // ALT toggle engages and follows the volume knob when it does. It
+    // hid from every early hunt behind a turned-down knob. The raw taps
+    // 0x1c/0x1d and 0x29/0x2a play the main bus outside the monitor
+    // section entirely; they are not this (see PROTOCOL.md).
+    case ROUTE_ALT:   return 0x27 + side;
     // Ear-verified on a real iD24, speakers and phones alike: 0x1e is
     // cue A left, 0x1f cue A right. What BiD wrote before, 0x23/0x24,
     // are the MONO SUMS of cue A and cue B - one bus summed per code -
