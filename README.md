@@ -135,6 +135,15 @@ udevadm control --reload-rules && udevadm trigger --attr-match=idVendor=2708
 ```
 All done!
 
+## Testing your model
+
+BiD grows by measurement, and owners of untested models are the
+instrument. [docs/TESTING.md](docs/TESTING.md) (по-русски:
+[docs/TESTING.ru.md](docs/TESTING.ru.md)) is the whole process — the
+safety rules, the per-ear checks, the watcher, the beep hunts, and how
+to report so a finding becomes a fix. Twenty minutes and working ears
+have mapped entire devices.
+
 ## Troubleshooting
 
 A problem with an iD interface on Linux lives in one of three layers: the
