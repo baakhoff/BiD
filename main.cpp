@@ -750,6 +750,12 @@ static void sysout_claim()
 			sysout_state = 4;
 			return;
 		}
+		// Everything from here on speaks about this one card, by its own
+		// name token - a second Audient box on the bus must not sway the
+		// sink count, and the flipped card's own input is the one to
+		// follow. The token is the card name shorn of its alsa_card.
+		// prefix, which is exactly how its sinks and sources begin.
+		std::string token = card.compare(0, 10, "alsa_card.") == 0 ? card.substr(10) : card;
 		// What the claim does depends on what the card already shows. One
 		// sink is already the honest shape: flipping its profile would
 		// only rename the nodes out from under every app that remembered
@@ -758,13 +764,13 @@ static void sysout_claim()
 		// is moved to Pro Audio, and there the default input moves too,
 		// because the flip kills the input name apps were holding.
 		std::string sinks = run_read("pactl list short sinks 2>/dev/null");
-		std::string sink = pactl_find(sinks, "usb-Audient", NULL);
-		if (pactl_count(sinks, "usb-Audient") != 1) {
+		std::string sink = pactl_find(sinks, token.c_str(), NULL);
+		if (pactl_count(sinks, token.c_str()) != 1) {
 			run_read(("pactl set-card-profile '" + card + "' pro-audio 2>/dev/null").c_str());
 			// the new sinks arrive a beat after the profile flips
 			sink.clear();
 			for (int i = 0; i < 25 && sink.empty(); i++) {
-				sink = pactl_find(run_read("pactl list short sinks 2>/dev/null"), "usb-Audient", "pro-output");
+				sink = pactl_find(run_read("pactl list short sinks 2>/dev/null"), token.c_str(), "pro-output");
 				if (sink.empty())
 					usleep(100000);
 			}
@@ -772,7 +778,7 @@ static void sysout_claim()
 				sysout_state = 5;
 				return;
 			}
-			std::string src = pactl_find(run_read("pactl list short sources 2>/dev/null"), "usb-Audient", "pro-input");
+			std::string src = pactl_find(run_read("pactl list short sources 2>/dev/null"), token.c_str(), "pro-input");
 			if (!src.empty())
 				run_read(("pactl set-default-source '" + src + "' 2>/dev/null").c_str());
 		}
