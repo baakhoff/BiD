@@ -323,6 +323,23 @@ int get_monitor_volume(float *out)
   return 1;
 }
 
+// The headphone gain lives in the output feature unit rather than the monitor
+// section, and the descriptors mark channels 3 and 4 read/write. Reading it is
+// how the knob on screen follows the one on the front of a box that shares its
+// encoder between the monitors and the phones.
+int get_hp_volume(float *out)
+{
+  unsigned char b[2] = {0, 0};
+  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x0203, 0x0c00 | control_iface, b, 2, 100);
+  if (r == LIBUSB_ERROR_NO_DEVICE)
+    driver_lost = true;
+  if (r != 2)
+    return 0;
+  float v = ((int16_t)(b[0] | (b[1] << 8)) + 32768) / 32767.0f;
+  *out = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+  return 1;
+}
+
 // The rest of the monitor section rides the same readable entity, keyed by
 // wValue = selector << 8: talkback source on 0x0800 (0x10 mic 1, 0x11
 // mic 2, 0x12 digi 1), mono mode on 0x0100 (0 centre, 1 left, 2 right),

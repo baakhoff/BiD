@@ -862,12 +862,19 @@ static bool push_state_to_device()
 			set_mixer_cell(i, s, 0.0f);
 	for (size_t i = 0; i < phase_value.size(); i++)
 		set_phase(i, phase_value[i]);
-	// The headphone gain is BiD's only where the box has no knob of its own
-	// for it. Elsewhere it is left wide open, so the knob on the front is the
-	// only thing setting the level: pushing a stored number into a control
-	// the window does not show is how headphones go silent with nothing on
-	// screen to explain them - half travel on this scale is -64 dB.
-	set_hp_volume(pdev.shared_monitor_knob ? levels[1] : 1.0f);
+	// The headphone gain is the one level BiD reads instead of writing on
+	// connect: where the box shares its encoder between the monitors and the
+	// phones, that encoder is the master and the knob here should open where
+	// it already stands. Everywhere else the output is left wide open, so the
+	// box's own headphone knob is the only thing in the way - pushing a stored
+	// number into a control the window does not show is how headphones go
+	// silent with nothing on screen to explain it, half travel being -64 dB.
+	if (pdev.shared_monitor_knob) {
+		float hp;
+		if (get_hp_volume(&hp))
+			levels[1] = hp;
+	} else
+		set_hp_volume(1.0f);
 	// Routing only where the source codes are known. The iD14 family looks
 	// them up in a table nobody has confirmed; writing the iD24's codes
 	// there pointed a tester's outputs at nothing (issue #26).
@@ -1170,6 +1177,11 @@ int main(int argc, char** argv)
 			float v;
 			if (get_monitor_volume(&v) && (v > levels[0] + 0.002f || v < levels[0] - 0.002f))
 				levels[0] = v;
+			// and while the knob is showing the phones, the phones too, so it
+			// follows the shared encoder on the front the way the monitor does
+			if (knob_target == 1 && get_hp_volume(&v)
+					&& (v > levels[1] + 0.002f || v < levels[1] - 0.002f))
+				levels[1] = v;
 			static int poll_idx = 0;
 			bool on;
 			if (get_bool_state(poll_idx, &on) && on != (bool)master_bools[poll_idx]) {
