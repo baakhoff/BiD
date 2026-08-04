@@ -77,13 +77,15 @@ what that output plays:
                NOT a stereo pair, though BiD long wrote them as one
     main mix   0x25 left half of the pair, 0x26 right — the monitor
                section's feed, so volume, dim and cut ride along
-    alt        0x1c / 0x1d    stereo main-mix feed on the alt outputs,
-               ear-verified there; sits below the cue pairs exactly as the
-               iD14 table lays its alt below its cues. 0x1e/0x1f was a
-               mislabel all along. Note 0x25/0x26 is *silent* on the alt
-               outputs - the monitor-feed codes only work on outputs 0/1 -
-               and 0x29/0x2a carries the same bus as 0x1c/0x1d with its
-               distinguishing trait still unmeasured
+    alt        0x1c / 0x1d    stereo main mix on the alt outputs - but a
+               RAW tap: the volume knob, the alt trim and the ALT toggle
+               all leave it untouched, and 0x29/0x2a is a second tap of
+               the same nature. The monitor-processed feed (0x25/0x26)
+               only exists on outputs 0/1, and nothing in 0x00..0x30
+               behaves as a gated alt source, so the official app most
+               likely implements ALT by rerouting in software - a
+               Windows USB capture of its ALT press is the missing
+               measurement. 0x1e/0x1f, the old "alt" label, is cue A
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on
@@ -140,12 +142,15 @@ only instrument here that measures the truth of a code on a *physical*
 output. It found cue A's pair, the input taps and the DAW base in one
 evening.
 
-Two cautions for the next session. The mixer cell values share the
+Three cautions for the next session. The mixer cell values share the
 output volumes' scale: **dB in a u16, not a fraction** — half travel is
 minus 64 dB, so a "quiet" test gain of 0.12 is silence, which
 masqueraded as a router crash here and burned a power cycle on a healthy
-device. And code `0x11` routes a live microphone at full level to
-whatever output it lands on: mute the mics before a hunt.
+device. Code `0x11` routes a live microphone at full level to whatever
+output it lands on: mute the mics before a hunt. And the raw taps
+bypass the monitor volume entirely, so a beep through them reaches the
+amplifier at full path level — keep test tones at −32 dB or below, and
+never assume the knob will protect the speakers.
 
 `0x25/0x26` is not a raw tap of the main mix bus: it is the monitor
 section's output, so the volume knob, dim and cut ride along on every output

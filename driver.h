@@ -136,11 +136,13 @@ inline uint8_t route_code(int out, int source)
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
     // Found by ear on the alt jacks: 0x1c/0x1d carries the main mix in
-    // stereo there, sitting right below the cue pairs the way the iD14
-    // table lays its alt just below its cues. The plain monitor codes
-    // 0x25/0x26 are silent on those outputs, so this pair is what the
-    // alt column must write. 0x29/0x2a carries the same bus too; what
-    // distinguishes them is still unmeasured (see PROTOCOL.md).
+    // stereo there - but RAW: outside the monitor section, so neither
+    // the volume knob nor the alt trim nor the ALT toggle touches it,
+    // and 0x29/0x2a proved to be a second tap of the same nature. No
+    // monitor-processed alt source answered anywhere in 0x00..0x30; the
+    // official app most likely implements ALT by rerouting in software,
+    // still uncaptured. Until then Alt means "main mix on the alt
+    // jacks, fixed level - mind the amplifier" (see PROTOCOL.md).
     case ROUTE_ALT:   return 0x1c + side;
     // Ear-verified on a real iD24, speakers and phones alike: 0x1e is
     // cue A left, 0x1f cue A right. What BiD wrote before, 0x23/0x24,
