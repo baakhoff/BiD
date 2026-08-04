@@ -1404,39 +1404,17 @@ int main(int argc, char** argv)
 					90.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f)); };
-				// The channel's level, from the last GET_MEM block, animated here -
-				// rising instantly, falling at a readable rate, with a slow peak
-				// hold - and handed to the fader, which lights its slot with it.
-				// The block counts in amplitude; this returns the place on the
-				// fader's own dB scale that amplitude stands at, so the meter and
-				// the figures printed beside it are reading the same ruler.
-				// What the strip is sending, not what arrived at it: the fader,
-				// the mix master, and mute or a solo somewhere else, exactly as
-				// send_channel bakes them into the write. A meter sitting inside
-				// the fader that ignored the fader would be reading the wrong end
-				// of the strip.
-				auto send_position = [&](int ch) {
-					bool any_solo = false;
-					for (size_t i = 0; i < solo_value[current_mix].size(); i++)
-						if (solo_value[current_mix][i]) { any_solo = true; break; }
-					if (ch < (int)mute_value[current_mix].size()
-							&& (mute_value[current_mix][ch] || (any_solo && !solo_value[current_mix][ch])))
-						return 0.0f;
-					return ch < (int)bar_value[current_mix].size()
-						? bar_value[current_mix][ch] * mix_master[current_mix] : 0.0f;
-				};
+				// The level arriving at the channel, from the last GET_MEM block,
+				// animated here - rising instantly, falling at a readable rate,
+				// with a slow peak hold - and handed to the fader, which lights
+				// its slot with it. It is the input that is metered, before the
+				// fader has any say, and the ladder is its own scale: the figures
+				// either side belong to the fader, not to it.
 				auto meter_level = [&](int ch, float *lvl, float *pk) {
 					float dt = ImGui::GetIO().DeltaTime;
 					float target = 0.0f;
-					if (connected && meter_readback && ch >= 0 && ch < 16 && meter_raw[ch] > 0) {
-						// dB add: the level that came in, plus the trim on its way out
-						float sp = send_position(ch);
-						if (sp > 0.0005f) {
-							float db = 20.0f * log10f((float)meter_raw[ch] / 255.0f)
-								+ (-32768.0f + 32767.0f * sp) / 256.0f;
-							target = ImClamp((db * 256.0f + 32768.0f) / 32767.0f, 0.0f, 1.0f);
-						}
-					}
+					if (connected && meter_readback && ch >= 0 && ch < 16)
+						target = sqrtf((float)meter_raw[ch] / 255.0f);
 					// the block carries sixteen nodes; strips past them - the larger
 					// iD models - keep a dark ladder instead of walking off the end
 					// of the state arrays

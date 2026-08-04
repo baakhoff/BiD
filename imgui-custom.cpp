@@ -69,11 +69,10 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     const float cap_c = (grab_bb.Min.y + grab_bb.Max.y) * 0.5f;
     if (meter >= 0.0f)
     {
-        // The channel's own level, lit down the slot the cap rides in: signal
-        // and fader share one line, and the figures printed either side read
-        // for both. The shoulders are dB, not fractions of the travel - amber
-        // from -12, red from -3, on the same law as the scale.
-        const float amber_at = 0.9062f, red_at = 0.9765f;
+        // The channel's own level, lit down the slot the cap rides in, so
+        // signal and fader share one line. The shoulders sit where a meter's
+        // do, at nine and seven tenths of its own height.
+        const float amber_at = 0.72f, red_at = 0.90f;
         const float pitch = ImMax(4.0f, GetFontSize() * 0.35f);
         const float top = slot.Min.y + 1.0f, bot = slot.Max.y - 1.0f;
         int segs = (int)((bot - top) / pitch);
