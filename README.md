@@ -200,9 +200,10 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
      played each — and the true pair, 0x1e/0x1f, had spent years
      mislabelled as Alt. Found by ear, one beep per candidate code,
      verified left/right on the speakers and the phones alike; the whole
-     hunt and the corrected code table are in docs/PROTOCOL.md. Alt's
-     own routing code is now the open question — its column feeds the
-     monitor path until it surfaces
+     hunt and the corrected code table are in docs/PROTOCOL.md. The same
+     hunt then found Alt's real pair one evening later — 0x1c/0x1d, one
+     step below the cues, with the monitors physically plugged into the
+     alt jacks to listen
    * The iD14 family gets its second cue back and, on the MKII, the shared
      encoder's SPEAKERS/PHONES buttons under the knob, like the official
      console. The headphone level is read from the device on connect

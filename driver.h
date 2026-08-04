@@ -135,12 +135,13 @@ inline uint8_t route_code(int out, int source)
   int side = out & 1; // left or right half of the output's stereo pair
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
-    // Alt's routing code is not known. 0x1e/0x1f wore that label for
-    // years, but a beep-per-code hunt by ear proved them to be cue A's
-    // stereo pair (see PROTOCOL.md). Until alt's own code surfaces, the
-    // alt column feeds the same monitor path as Main - the ALT toggle in
-    // the monitor section still does the speaker switching itself.
-    case ROUTE_ALT:   return 0x25 + side;
+    // Found by ear on the alt jacks: 0x1c/0x1d carries the main mix in
+    // stereo there, sitting right below the cue pairs the way the iD14
+    // table lays its alt just below its cues. The plain monitor codes
+    // 0x25/0x26 are silent on those outputs, so this pair is what the
+    // alt column must write. 0x29/0x2a carries the same bus too; what
+    // distinguishes them is still unmeasured (see PROTOCOL.md).
+    case ROUTE_ALT:   return 0x1c + side;
     // Ear-verified on a real iD24, speakers and phones alike: 0x1e is
     // cue A left, 0x1f cue A right. What BiD wrote before, 0x23/0x24,
     // are the MONO SUMS of cue A and cue B - one bus summed per code -

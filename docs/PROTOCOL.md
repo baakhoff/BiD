@@ -77,9 +77,13 @@ what that output plays:
                NOT a stereo pair, though BiD long wrote them as one
     main mix   0x25 left half of the pair, 0x26 right — the monitor
                section's feed, so volume, dim and cut ride along
-    alt        code unknown. 0x1e/0x1f was a mislabel; until the real one
-               surfaces BiD's alt column feeds the monitor path like Main,
-               and the ALT toggle does the speaker switching itself
+    alt        0x1c / 0x1d    stereo main-mix feed on the alt outputs,
+               ear-verified there; sits below the cue pairs exactly as the
+               iD14 table lays its alt below its cues. 0x1e/0x1f was a
+               mislabel all along. Note 0x25/0x26 is *silent* on the alt
+               outputs - the monitor-feed codes only work on outputs 0/1 -
+               and 0x29/0x2a carries the same bus as 0x1c/0x1d with its
+               distinguishing trait still unmeasured
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on
