@@ -136,13 +136,15 @@ inline uint8_t route_code(int out, int source)
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
     case ROUTE_ALT:   return 0x1e + side;
-    // The block is not packed evenly: alt, cue B, then a one-code gap, then
-    // cue A at 0x23/0x24 - which is what Monix's raw capture of the official
-    // app showed before their formula "corrected" it. 0x22 is not a usable
-    // source: an output sent there plays a stuck full-level feed that no
-    // fader and no dial controls, heard here as a phones left ear that
-    // ignored everything while the right ear tracked cue A's left cells.
-    case ROUTE_CUE_A: return 0x23 + side;
+    // Measured on a real iD24 (loopback mirror + ears, see PROTOCOL.md):
+    // 0x23 and 0x24 are not a stereo pair. They are the MONO SUMS of cue
+    // A and cue B - writing them as a pair is why "phones on Cue A"
+    // played cue A's sum in one ear and cue B's sum in the other. Until
+    // cue A's true stereo pair is measured, both halves get the cue A
+    // sum: honest mono in both ears. Cue B's stereo pair 0x20/0x21 is
+    // ear-verified and real. 0x22 is not a usable source: an output sent
+    // there plays a stuck full-level feed no fader controls.
+    case ROUTE_CUE_A: return 0x23;
     case ROUTE_CUE_B: return 0x20 + side;
     case ROUTE_DAW:   return out; // output n plays DAW channel n
   }

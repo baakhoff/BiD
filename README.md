@@ -195,6 +195,11 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 ### BiD
 
 * Unreleased
+   * Cue A on the iD24 stops lying: the codes BiD wrote as its stereo pair
+     turned out to be the mono sums of cue A and cue B — one ear played
+     each — measured with a loopback mirror and written up in
+     docs/PROTOCOL.md. Until the true stereo pair is found, cue A routes
+     as honest mono on both halves; cue B's pair is real and verified
    * The iD14 family gets its second cue back and, on the MKII, the shared
      encoder's SPEAKERS/PHONES buttons under the knob, like the official
      console. The headphone level is read from the device on connect
