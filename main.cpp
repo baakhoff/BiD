@@ -1376,25 +1376,29 @@ int main(int argc, char** argv)
 				// fader with its meter, pan pot, pan caption. The fader takes whatever
 				// height the rest leaves over.
 				const float fader_w = 46.0f * main_scale;
+				const float meter_w = 10.0f * main_scale;
+				const float meter_gap = 4.0f * main_scale;
+				// The figures want a gutter to the left of the fader and the
+				// meter takes one on the right. Both are cut to the same width,
+				// so the fader sits on the column's centre line - where the
+				// name, the pills and the pan pot already are. Sized apart,
+				// they left every strip leaning off centre.
+				ImGui::PushFont(font, 10.0f);
+				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 4.0f * main_scale);
+				ImGui::PopFont();
+				const float side = ImMax(scale_w, meter_gap + meter_w);
 				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
 				const float label_w = ImGui::CalcTextSize("DIGI 00").x;
-				float chan_w = ImMax(fader_w, label_w);
+				const float chan_min = ImMax(fader_w + side * 2.0f, label_w + 10.0f * main_scale);
+				float chan_w = chan_min;
 				if (chan_count > 0)
 					chan_w = ImClamp((ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * (chan_count - 1)) / chan_count,
-						ImMax(fader_w, label_w) + 10.0f * main_scale, ImMax(96.0f * main_scale, label_w));
+							chan_min, ImMax(ImMax(96.0f * main_scale, label_w), chan_min));
 				chan_w = (float)(int)chan_w; // whole pixels, or small pills render smeared
 				const float pill_w = 20.0f * main_scale, pill_h = 18.0f * main_scale;
 				const float knob_d = 34.0f * main_scale;
 				const float head_fix = 50.0f * main_scale;
 				const float below_fix = knob_d + 22.0f * main_scale;
-				const float meter_w = 8.0f * main_scale;
-				const float meter_gap = 4.0f * main_scale;
-				// the printed scale needs a gutter of its own. Without one the
-				// figures reach back into the strip on the left, and the first
-				// strip of a panel loses them off the edge entirely.
-				ImGui::PushFont(font, 10.0f);
-				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 4.0f * main_scale);
-				ImGui::PopFont();
 				// nine item gaps live between a strip's pieces; shorting them
 				// is what once pushed the LINK bar off the panel's foot
 				const float fader_h = ImMax(strip_h - (head_fix + below_fix + style.ItemSpacing.y * 9.0f + style.ScrollbarSize + 8.0f * main_scale),
@@ -1419,24 +1423,28 @@ int main(int argc, char** argv)
 					float &peak = tracked ? meter_peak[ch] : dead_peak;
 					disp = target > disp ? target : ImMax(0.0f, disp - dt * 1.8f);
 					peak = disp > peak ? disp : ImMax(0.0f, peak - dt * 0.35f);
-					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(9, 10, 13, 255), 2.5f * main_scale);
-					int segs = (int)(h / (7.0f * main_scale));
-					if (segs < 8) segs = 8;
-					float seg_h = h / segs;
-					int lit = (int)(disp * segs + 0.5f);
-					for (int sg = 0; sg < segs; sg++) {
-						float frac = (sg + 1.0f) / segs;
-						bool on = sg < lit;
-						ImU32 col;
-						if (frac > 0.90f)      col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(36, 20, 19, 255);
-						else if (frac > 0.72f) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(35, 29, 18, 255);
-						else                   col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(17, 24, 20, 255);
-						dl->AddRectFilled(ImVec2(p.x + 1.5f, p.y + h - (sg + 1) * seg_h + 1.5f),
-							ImVec2(p.x + w - 1.5f, p.y + h - sg * seg_h - 1.0f), col, 1.5f);
-					}
+					const float r = 2.5f * main_scale;
+					const float in = 1.5f * main_scale;
+					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(9, 10, 13, 255), r);
+					// One bar, not a string of beads: the fill is drawn solid in
+					// its three zones and the rungs are laid dark over the top,
+					// so it reads as a level at a glance and still counts.
+					auto band = [&](float lo, float hi, ImU32 col, ImDrawFlags rc) {
+						hi = ImMin(hi, disp);
+						if (hi <= lo)
+							return;
+						dl->AddRectFilled(ImVec2(p.x + in, p.y + h - hi * h),
+							ImVec2(p.x + w - in, p.y + h - lo * h), col, r, rc);
+					};
+					band(0.00f, 0.72f, IM_COL32(96, 222, 132, 255), ImDrawFlags_RoundCornersBottom);
+					band(0.72f, 0.90f, IM_COL32(255, 176, 46, 255), ImDrawFlags_RoundCornersNone);
+					band(0.90f, 1.00f, IM_COL32(255, 82, 72, 255),  ImDrawFlags_RoundCornersNone);
+					float pitch = 7.0f * main_scale;
+					for (float ry = p.y + h - pitch; ry > p.y + 1.0f; ry -= pitch)
+						dl->AddLine(ImVec2(p.x + in, ry), ImVec2(p.x + w - in, ry), IM_COL32(9, 10, 13, 225), 1.0f * main_scale);
 					if (peak > 0.02f) {
-						float py = p.y + h - peak * h;
-						dl->AddLine(ImVec2(p.x + 1.0f, py), ImVec2(p.x + w - 1.0f, py), IM_COL32(255, 255, 255, 150), 1.0f * main_scale);
+						float py = p.y + h - ImClamp(peak, 0.0f, 1.0f) * h + 0.5f * main_scale;
+						dl->AddLine(ImVec2(p.x + in, py), ImVec2(p.x + w - in, py), IM_COL32(255, 255, 255, 190), 1.5f * main_scale);
 					}
 				};
 				// The pan is a pot, like the consoles this mirrors; double click
@@ -1556,10 +1564,7 @@ int main(int argc, char** argv)
 						hover_tip("Phase invert");
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
-					// squeezed strips give the gutter up last: the meter may lean
-					// into the gap between strips before a figure is cut again
-					ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + scale_w
-						+ ImMax(0.0f, (chan_w - (scale_w + fader_w + meter_gap + meter_w)) * 0.5f)));
+					center_in_column(fader_w);
 					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
