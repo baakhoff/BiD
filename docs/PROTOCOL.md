@@ -100,14 +100,21 @@ from the computer or a bus to a physical connector. Treat every
 unmapped output index on every model as connected to something real
 until measured otherwise.
 
-**The loopback is not a passive path.** With a probe signal on cue B
-routed to each of outputs 6..11 in turn, all twelve capture channels
-stayed silent — and the direct bank is jacks, not loopback. So the
-loopback pair the decode promises on outputs 10/11, arriving as
-capture 11+12, does not materialize on its own: like the alt feed
-before its gate was found, it must sit behind an enable the official
-app writes. Third item, same shape, for the Windows capture list —
-alongside the alt trim and the mystery selectors.
+**The loopback is not a passive path, and its enable is not findable
+from here.** With a probe signal on cue B routed to each of outputs
+6..11 in turn, all twelve capture channels stayed silent — and the
+direct bank is jacks, not loopback. The official app's menu shows what
+loopback really is: one source selector for the pair (DAW 1+2 / 3+4 /
+5+6, master, cue A, cue B) grouped with the sample-rate and clock
+items. Every reachable candidate for that selector was then tried with
+values 0..5 — the monitor entity's unknowns (0x01, 0x08, 0x15) and the
+clock entity's 0xff-holding selector 0x06 — with a tone on DAW 1/2 and
+all capture channels watched: silence throughout. The routing entity
+aliases selector reads (everything answers 0x25), so nothing hides
+there either. What remains is a memory-block write, another rate mode,
+or plain capture of the official app using that very menu — the fourth
+item on the Windows capture agenda, and the strongest argument for
+finally running it.
 
 The long alt hunt earned some lessons worth keeping. 0x25/0x26 works on
 the alt outputs too, knob and all, while ALT is off - an early "silent"
