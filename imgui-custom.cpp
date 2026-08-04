@@ -2,7 +2,7 @@
 
 namespace ImGui {
 
-bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags)
+bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags, float meter = -1.0f, float peak = -1.0f)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -49,7 +49,8 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     ImDrawList* dl = window->DrawList;
     const bool live = (g.ActiveId == id);
     const float cx = (frame_bb.Min.x + frame_bb.Max.x) * 0.5f;
-    const float slot_w = ImMax(5.0f, (frame_bb.Max.x - frame_bb.Min.x) * 0.15f);
+    // wide enough to read as a meter, still narrower than the cap that rides it
+    const float slot_w = ImMax(6.0f, (frame_bb.Max.x - frame_bb.Min.x) * 0.22f);
     const ImRect slot(ImVec2(cx - slot_w * 0.5f, frame_bb.Min.y + 3.0f), ImVec2(cx + slot_w * 0.5f, frame_bb.Max.y - 3.0f));
     // The ticks stand where a console prints its dB figures - unity, -10, -20,
     // -40, -60, silence - and on the cap's travel, not the slot's, so a line
@@ -66,7 +67,38 @@ bool VFaderScalar(const char* label, const ImVec2& size, ImGuiDataType data_type
     dl->AddRectFilled(slot.Min, slot.Max, GetColorU32(ImVec4(0.040f, 0.045f, 0.055f, 1.0f)), slot_w * 0.5f);
     dl->AddRect(slot.Min, slot.Max, GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.55f)), slot_w * 0.5f);
     const float cap_c = (grab_bb.Min.y + grab_bb.Max.y) * 0.5f;
-    if (slot.Max.y - cap_c > 3.0f)
+    if (meter >= 0.0f)
+    {
+        // The channel's own level, lit down the slot the cap rides in: signal
+        // and fader share one line, and the figures printed either side read
+        // for both. The shoulders are dB, not fractions of the travel - amber
+        // from -12, red from -3, on the same law as the scale.
+        const float amber_at = 0.9062f, red_at = 0.9765f;
+        const float pitch = ImMax(4.0f, GetFontSize() * 0.35f);
+        const float top = slot.Min.y + 1.0f, bot = slot.Max.y - 1.0f;
+        int segs = (int)((bot - top) / pitch);
+        if (segs < 8)
+            segs = 8;
+        const float seg_h = (bot - top) / segs;
+        const int lit = (int)(ImClamp(meter, 0.0f, 1.0f) * segs + 0.5f);
+        for (int sg = 0; sg < segs; sg++)
+        {
+            const float frac = (sg + 1.0f) / segs;
+            const bool on = sg < lit;
+            ImU32 col;
+            if (frac > red_at)        col = on ? IM_COL32(255, 82, 72, 255)  : IM_COL32(36, 20, 19, 255);
+            else if (frac > amber_at) col = on ? IM_COL32(255, 176, 46, 255) : IM_COL32(35, 29, 18, 255);
+            else                      col = on ? IM_COL32(96, 222, 132, 255) : IM_COL32(17, 24, 20, 255);
+            dl->AddRectFilled(ImVec2(slot.Min.x + 1.0f, bot - (sg + 1) * seg_h + 1.0f),
+                ImVec2(slot.Max.x - 1.0f, bot - sg * seg_h), col, 1.5f);
+        }
+        if (peak > 0.02f)
+        {
+            const float py = bot - ImClamp(peak, 0.0f, 1.0f) * (bot - top);
+            dl->AddLine(ImVec2(slot.Min.x, py), ImVec2(slot.Max.x, py), IM_COL32(255, 255, 255, 200), 1.5f);
+        }
+    }
+    else if (slot.Max.y - cap_c > 3.0f)
         dl->AddRectFilled(ImVec2(slot.Min.x + 1.0f, cap_c), ImVec2(slot.Max.x - 1.0f, slot.Max.y - 1.0f),
             GetColorU32(ImGuiCol_SliderGrab, live ? 0.60f : 0.40f), slot_w * 0.4f);
     const float cap_h = 20.0f;
@@ -128,9 +160,9 @@ void InkCenteredLabel(const char* text, unsigned int col)
     GetWindowDrawList()->AddText(f, fsize, pos, col, text);
 }
 
-bool VFaderFloat(const char* label, const ImVec2& size, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags)
+bool VFaderFloat(const char* label, const ImVec2& size, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags, float meter, float peak)
 {
-    return VFaderScalar(label, size, ImGuiDataType_Float, v, &v_min, &v_max, format, flags);
+    return VFaderScalar(label, size, ImGuiDataType_Float, v, &v_min, &v_max, format, flags, meter, peak);
 }
 
 bool VFaderInt(const char* label, const ImVec2& size, int* v, int v_min, int v_max, const char* format, ImGuiSliderFlags flags)

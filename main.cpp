@@ -1376,17 +1376,14 @@ int main(int argc, char** argv)
 				// fader with its meter, pan pot, pan caption. The fader takes whatever
 				// height the rest leaves over.
 				const float fader_w = 46.0f * main_scale;
-				const float meter_w = 10.0f * main_scale;
-				const float meter_gap = 4.0f * main_scale;
-				// The figures want a gutter to the left of the fader and the
-				// meter takes one on the right. Both are cut to the same width,
-				// so the fader sits on the column's centre line - where the
-				// name, the pills and the pan pot already are. Sized apart,
-				// they left every strip leaning off centre.
+				// The scale is printed down both flanks of the fader, in a gutter
+				// of its own on each side, which leaves the fader - and the meter
+				// now lit inside it - on the column's centre line, where the name,
+				// the pills and the pan pot already are.
 				ImGui::PushFont(font, 10.0f);
 				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 4.0f * main_scale);
 				ImGui::PopFont();
-				const float side = ImMax(scale_w, meter_gap + meter_w);
+				const float side = scale_w;
 				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
 				const float label_w = ImGui::CalcTextSize("DIGI 00").x;
 				const float chan_min = ImMax(fader_w + side * 2.0f, label_w + 10.0f * main_scale);
@@ -1405,15 +1402,19 @@ int main(int argc, char** argv)
 					90.0f * main_scale);
 				// centre an item of the given width inside the current column
 				auto center_in_column = [&](float item_w) { ImGui::SetCursorPosX((float)(int)(ImGui::GetCursorPosX() + (chan_w - item_w) * 0.5f)); };
-				// The meter ladder is drawn by hand beside the fader, lit from the
-				// last GET_MEM block and animated here - rising instantly, falling
-				// at a readable rate, with a slow peak-hold line.
-				auto draw_meter = [&](ImVec2 p, float w, float h, int ch) {
-					ImDrawList* dl = ImGui::GetWindowDrawList();
+				// The channel's level, from the last GET_MEM block, animated here -
+				// rising instantly, falling at a readable rate, with a slow peak
+				// hold - and handed to the fader, which lights its slot with it.
+				// The block counts in amplitude; this returns the place on the
+				// fader's own dB scale that amplitude stands at, so the meter and
+				// the figures printed beside it are reading the same ruler.
+				auto meter_level = [&](int ch, float *lvl, float *pk) {
 					float dt = ImGui::GetIO().DeltaTime;
 					float target = 0.0f;
-					if (connected && meter_readback && ch >= 0 && ch < 16)
-						target = sqrtf((float)meter_raw[ch] / 255.0f);
+					if (connected && meter_readback && ch >= 0 && ch < 16 && meter_raw[ch] > 0) {
+						float db = 20.0f * log10f((float)meter_raw[ch] / 255.0f);
+						target = ImClamp((db * 256.0f + 32768.0f) / 32767.0f, 0.0f, 1.0f);
+					}
 					// the block carries sixteen nodes; strips past them - the larger
 					// iD models - keep a dark ladder instead of walking off the end
 					// of the state arrays
@@ -1423,29 +1424,8 @@ int main(int argc, char** argv)
 					float &peak = tracked ? meter_peak[ch] : dead_peak;
 					disp = target > disp ? target : ImMax(0.0f, disp - dt * 1.8f);
 					peak = disp > peak ? disp : ImMax(0.0f, peak - dt * 0.35f);
-					const float r = 2.5f * main_scale;
-					const float in = 1.5f * main_scale;
-					dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(9, 10, 13, 255), r);
-					// One bar, not a string of beads: the fill is drawn solid in
-					// its three zones and the rungs are laid dark over the top,
-					// so it reads as a level at a glance and still counts.
-					auto band = [&](float lo, float hi, ImU32 col, ImDrawFlags rc) {
-						hi = ImMin(hi, disp);
-						if (hi <= lo)
-							return;
-						dl->AddRectFilled(ImVec2(p.x + in, p.y + h - hi * h),
-							ImVec2(p.x + w - in, p.y + h - lo * h), col, r, rc);
-					};
-					band(0.00f, 0.72f, IM_COL32(96, 222, 132, 255), ImDrawFlags_RoundCornersBottom);
-					band(0.72f, 0.90f, IM_COL32(255, 176, 46, 255), ImDrawFlags_RoundCornersNone);
-					band(0.90f, 1.00f, IM_COL32(255, 82, 72, 255),  ImDrawFlags_RoundCornersNone);
-					float pitch = 7.0f * main_scale;
-					for (float ry = p.y + h - pitch; ry > p.y + 1.0f; ry -= pitch)
-						dl->AddLine(ImVec2(p.x + in, ry), ImVec2(p.x + w - in, ry), IM_COL32(9, 10, 13, 225), 1.0f * main_scale);
-					if (peak > 0.02f) {
-						float py = p.y + h - ImClamp(peak, 0.0f, 1.0f) * h + 0.5f * main_scale;
-						dl->AddLine(ImVec2(p.x + in, py), ImVec2(p.x + w - in, py), IM_COL32(255, 255, 255, 190), 1.5f * main_scale);
-					}
+					*lvl = disp;
+					*pk = peak;
 				};
 				// The pan is a pot, like the consoles this mirrors; double click
 				// recentres it. The caption under it says where it points.
@@ -1565,7 +1545,9 @@ int main(int argc, char** argv)
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					center_in_column(fader_w);
-					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f")) {
+					float mlvl = 0.0f, mpk = 0.0f;
+					meter_level(idx, &mlvl, &mpk);
+					if (ImGui::VFaderFloat(("##v"+wid).c_str(), ImVec2(fader_w, fader_h), &bar_value[current_mix][idx], 0.0f, 1.0f, "%.2f", 0, mlvl, mpk)) {
 						if (partner >= 0)
 							bar_value[current_mix][partner] = bar_value[current_mix][idx];
 						if (connected) {
@@ -1603,22 +1585,20 @@ int main(int argc, char** argv)
 							{ 0.69f, "-40" }, { 0.53f, "-60" }, { 0.0f, "\u221e" },
 						};
 						// the cap's centre stops short of both ends by half its own
-						// height, and the figures follow it there - printed against
-						// the fader's left edge, inside the gutter kept for them
+						// height, and the figures follow it there - printed down
+						// both flanks, so the fader and its meter run down the
+						// middle of the strip with the scale either side
 						const float cap_inset = 2.0f + style.GrabMinSize * 0.5f;
+						const float gap = 3.0f * main_scale;
 						ImGui::PushFont(font, 10.0f);
 						for (const auto &m : marks) {
 							float y = fmax.y - cap_inset - (fader_h - cap_inset * 2.0f) * m.v;
 							ImVec2 ts = ImGui::CalcTextSize(m.t);
-							dl->AddText(ImVec2((float)(int)(fmin.x - ts.x - 3.0f * main_scale), (float)(int)(y - ts.y * 0.5f)), sc, m.t);
+							float ty = (float)(int)(y - ts.y * 0.5f);
+							dl->AddText(ImVec2((float)(int)(fmin.x - ts.x - gap), ty), sc, m.t);
+							dl->AddText(ImVec2((float)(int)(fmax.x + gap), ty), sc, m.t);
 						}
 						ImGui::PopFont();
-					}
-					ImGui::SameLine(0.0f, meter_gap);
-					{
-						ImVec2 mp = ImGui::GetCursorScreenPos();
-						ImGui::Dummy(ImVec2(meter_w, fader_h));
-						draw_meter(mp, meter_w, fader_h, idx);
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					pan_knob(idx, wid);
