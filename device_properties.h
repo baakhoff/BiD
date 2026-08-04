@@ -51,8 +51,9 @@ struct device_properties {
 	// hardware or from its descriptors; the state push needs this much.
 	bool mixer_known = false;
 	// Whether the routing source codes are trustworthy. The iD24 and iD48
-	// compute them by formula; the iD14, iD22 and iD44 look them up in a
-	// table nobody has confirmed, so BiD does not write routing there.
+	// compute them by formula; the iD14 family looks them up in a table,
+	// confirmed on a real iD14 MKII (issue #26). Where this is false, BiD
+	// writes routing only when clicked and pushes nothing on connect.
 	bool routing_known = false;
 	// Which code table this model speaks: 0 none, 1 the iD24's formula,
 	// 2 the iD14's table inherited from MixiD, which was written on one.
@@ -118,8 +119,9 @@ void setup_devices()
 	iD14.mixer_stride = 6;
 	iD14.routing_outputs = 6;
 	iD14.mixer_known = true;
-	iD14.routing_known = false; // not pushed on connect until confirmed
-	// MixiD's own table, from the machine it was developed on
+	// The table is confirmed on an iD14 MKII (issue #26); this first
+	// generation keeps the cautious flags until one is heard from.
+	iD14.routing_known = false;
 	iD14.route_scheme = 2;
 	iD14.outputs = 4;
 	iD14.digital_outputs = 0;
@@ -147,8 +149,13 @@ void setup_devices()
 	iD14MKII.mixer_stride = 6;
 	iD14MKII.routing_outputs = 6;
 	iD14MKII.mixer_known = true;
-	iD14MKII.routing_known = false; // not pushed on connect until confirmed
-	// MixiD's own table, from the machine it was developed on
+	// Confirmed on real hardware (issue #26): the tester steered every
+	// output pair through Main, Cue A and Cue B and audio followed the
+	// matrix each time, with the cue faders gating exactly the outputs
+	// fed from them. The monitor volume landed too, behaving like the
+	// front encoder it shares a node with.
+	iD14MKII.protocol_verified = true;
+	iD14MKII.routing_known = true;
 	iD14MKII.route_scheme = 2;
 	iD14MKII.outputs = 4;
 	iD14MKII.digital_outputs = 0;

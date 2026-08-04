@@ -208,10 +208,21 @@ static void apply_device_profile()
 		current_mix = 0;
 }
 
+// A model without alternate speakers has no Alt column, so Alt must never
+// come up as a value there - not from the defaults, not from a state file
+// written before the column was hidden. The main pair falls back to Main,
+// anything else to DAW Thru, both always on offer.
+static int sane_route(int p, int s)
+{
+	if (s == ROUTE_ALT && !devices[driver_indicator].has_alt)
+		return p == 0 ? ROUTE_MAIN : ROUTE_DAW;
+	return s;
+}
+
 static void reset_routing()
 {
 	for (int p = 0; p < 4; p++)
-		route_state[p] = route_default[p];
+		route_state[p] = sane_route(p, route_default[p]);
 }
 
 static void reset_mixes()
@@ -468,7 +479,7 @@ static bool load_state_from(const std::string& path)
 	}
 	phase_value.assign(ph.begin(), ph.end());
 	for (int p = 0; p < 3; p++)
-		route_state[p] = (route[p] >= 0 && route[p] < ROUTE_SOURCES) ? route[p] : route_default[p];
+		route_state[p] = sane_route(p, (route[p] >= 0 && route[p] < ROUTE_SOURCES) ? route[p] : route_default[p]);
 	out_link[0] = link != 0;
 	levels[1] = clamp01(phones);
 	levels[0] = clamp01(monitor);
@@ -493,7 +504,7 @@ static bool load_state_from(const std::string& path)
 		chan_mono.assign(pm.begin(), pm.end());
 	else
 		chan_mono.assign(n, false);
-	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
+	route_state[3] = sane_route(3, (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3]);
 	chan_name.assign(nm.begin(), nm.end());
 	return true;
 }
@@ -1953,7 +1964,7 @@ int main(int argc, char** argv)
 				ImGui::PopStyleColor();
 				ImGui::PopFont();
 				hover_tip(wdev.mixer_known
-					? "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not confirmed,\nso BiD does not write routing here. Reports welcome in the tracker."
+					? "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not confirmed,\nso the routing panel writes only when clicked, and nothing is\npushed on connect. Reports welcome in the tracker."
 					: "This model's protocol has not been confirmed on hardware.\nBiD writes nothing on connect, and a control you move may\nland somewhere unintended. Reports welcome in the tracker.");
 			}
 			const bool call_to_action = !connected;

@@ -179,6 +179,20 @@ and leaves the level to the hardware. Note the scale is dB, not a fraction -
 half travel is about -64 dB, which is silence with the knob apparently
 half up.
 
+What the monitor volume actually governs came back from the same MKII
+(issue #26). The speaker half of the knob writes selector `0x12` on entity
+`0x36` - the very node the front encoder moves, which is why the on-screen
+knob and the hardware one behave identically. And on the MKII that node
+sits on the **main mix path**, not on the connector: with both output pairs
+fed from Main Mix, one turn took the speakers and the headphones down
+together, while an output fed from a cue played at fixed level that no
+volume control - on screen or on the box - could touch. That is the
+hardware's own design, cue sends being fixed-level artist feeds, not a
+failed write. The headphone gain on `0x0c` channels 3 and 4 made no
+audible difference on a cue-fed phones output, which the same design
+explains; whether it bites when the phones carry Main Mix is still
+untested there.
+
 ### The iD14's own codes, which BiD had all along
 
 MixiD's original routing table was never wrong - it was written for a
@@ -199,8 +213,13 @@ is exactly why writing them to an iD24 selected undefined sources: the
 symptom that made BiD replace the table in the first place. Both tables are
 right, each on its own family, and BiD now carries both.
 
-BiD offers the iD14 table when the user clicks a routing button, but does
-not push it on connect: it is inherited, not confirmed here.
+The table is now confirmed on a real iD14 MKII (issue #26). The tester
+steered the output pairs through Main, Cue A and Cue B in three
+configurations and audio followed the matrix every time - a cue's master
+fader gated exactly the outputs fed from that cue, and swapping the
+assignments swapped the result. BiD therefore pushes routing on connect
+for the MKII. The first-generation iD14 speaks the same table but keeps
+the cautious flags until an owner of one reports.
 
 ## The F buttons
 
