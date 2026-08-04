@@ -1375,13 +1375,15 @@ int main(int argc, char** argv)
 				// strip anatomy, top to bottom: name, type-coloured chip, phase pill,
 				// fader with its meter, pan pot, pan caption. The fader takes whatever
 				// height the rest leaves over.
-				const float fader_w = 46.0f * main_scale;
+				const float fader_w = 42.0f * main_scale;
 				// The scale is printed down both flanks of the fader, in a gutter
 				// of its own on each side, which leaves the fader - and the meter
 				// now lit inside it - on the column's centre line, where the name,
-				// the pills and the pan pot already are.
-				ImGui::PushFont(font, 10.0f);
-				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 4.0f * main_scale);
+				// the pills and the pan pot already are. Small type: two of these
+				// gutters and a fader have to sit inside one strip.
+				const float scale_pt = 8.5f;
+				ImGui::PushFont(font, scale_pt);
+				const float scale_w = (float)(int)(ImGui::CalcTextSize("-60").x + 3.0f * main_scale);
 				ImGui::PopFont();
 				const float side = scale_w;
 				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
@@ -1408,12 +1410,32 @@ int main(int argc, char** argv)
 				// The block counts in amplitude; this returns the place on the
 				// fader's own dB scale that amplitude stands at, so the meter and
 				// the figures printed beside it are reading the same ruler.
+				// What the strip is sending, not what arrived at it: the fader,
+				// the mix master, and mute or a solo somewhere else, exactly as
+				// send_channel bakes them into the write. A meter sitting inside
+				// the fader that ignored the fader would be reading the wrong end
+				// of the strip.
+				auto send_position = [&](int ch) {
+					bool any_solo = false;
+					for (size_t i = 0; i < solo_value[current_mix].size(); i++)
+						if (solo_value[current_mix][i]) { any_solo = true; break; }
+					if (ch < (int)mute_value[current_mix].size()
+							&& (mute_value[current_mix][ch] || (any_solo && !solo_value[current_mix][ch])))
+						return 0.0f;
+					return ch < (int)bar_value[current_mix].size()
+						? bar_value[current_mix][ch] * mix_master[current_mix] : 0.0f;
+				};
 				auto meter_level = [&](int ch, float *lvl, float *pk) {
 					float dt = ImGui::GetIO().DeltaTime;
 					float target = 0.0f;
 					if (connected && meter_readback && ch >= 0 && ch < 16 && meter_raw[ch] > 0) {
-						float db = 20.0f * log10f((float)meter_raw[ch] / 255.0f);
-						target = ImClamp((db * 256.0f + 32768.0f) / 32767.0f, 0.0f, 1.0f);
+						// dB add: the level that came in, plus the trim on its way out
+						float sp = send_position(ch);
+						if (sp > 0.0005f) {
+							float db = 20.0f * log10f((float)meter_raw[ch] / 255.0f)
+								+ (-32768.0f + 32767.0f * sp) / 256.0f;
+							target = ImClamp((db * 256.0f + 32768.0f) / 32767.0f, 0.0f, 1.0f);
+						}
 					}
 					// the block carries sixteen nodes; strips past them - the larger
 					// iD models - keep a dark ladder instead of walking off the end
@@ -1589,8 +1611,8 @@ int main(int argc, char** argv)
 						// both flanks, so the fader and its meter run down the
 						// middle of the strip with the scale either side
 						const float cap_inset = 2.0f + style.GrabMinSize * 0.5f;
-						const float gap = 3.0f * main_scale;
-						ImGui::PushFont(font, 10.0f);
+						const float gap = 2.0f * main_scale;
+						ImGui::PushFont(font, scale_pt);
 						for (const auto &m : marks) {
 							float y = fmax.y - cap_inset - (fader_h - cap_inset * 2.0f) * m.v;
 							ImVec2 ts = ImGui::CalcTextSize(m.t);
