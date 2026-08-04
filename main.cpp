@@ -696,6 +696,22 @@ static std::string run_read(const char* cmd)
 	return out;
 }
 
+// How many listing lines hold the needle.
+static int pactl_count(const std::string& listing, const char* what)
+{
+	int n = 0;
+	size_t at = 0;
+	while (at < listing.size()) {
+		size_t end = listing.find('\n', at);
+		if (end == std::string::npos)
+			end = listing.size();
+		if (listing.substr(at, end - at).find(what) != std::string::npos)
+			n++;
+		at = end + 1;
+	}
+	return n;
+}
+
 // Second tab-separated field of the first listing line holding both
 // needles (the second may be null), or empty.
 static std::string pactl_find(const std::string& listing, const char* what, const char* also)
@@ -734,17 +750,31 @@ static void sysout_claim()
 			sysout_state = 4;
 			return;
 		}
-		run_read(("pactl set-card-profile '" + card + "' pro-audio 2>/dev/null").c_str());
-		// the new sinks arrive a beat after the profile flips
-		std::string sink;
-		for (int i = 0; i < 25 && sink.empty(); i++) {
-			sink = pactl_find(run_read("pactl list short sinks 2>/dev/null"), "usb-Audient", "pro-output");
-			if (sink.empty())
-				usleep(100000);
-		}
-		if (sink.empty()) {
-			sysout_state = 5;
-			return;
+		// What the claim does depends on what the card already shows. One
+		// sink is already the honest shape: flipping its profile would
+		// only rename the nodes out from under every app that remembered
+		// them - the mic hunt that followed doing it to an iD24 - so it
+		// just becomes the default. Only a card split into several sinks
+		// is moved to Pro Audio, and there the default input moves too,
+		// because the flip kills the input name apps were holding.
+		std::string sinks = run_read("pactl list short sinks 2>/dev/null");
+		std::string sink = pactl_find(sinks, "usb-Audient", NULL);
+		if (pactl_count(sinks, "usb-Audient") != 1) {
+			run_read(("pactl set-card-profile '" + card + "' pro-audio 2>/dev/null").c_str());
+			// the new sinks arrive a beat after the profile flips
+			sink.clear();
+			for (int i = 0; i < 25 && sink.empty(); i++) {
+				sink = pactl_find(run_read("pactl list short sinks 2>/dev/null"), "usb-Audient", "pro-output");
+				if (sink.empty())
+					usleep(100000);
+			}
+			if (sink.empty()) {
+				sysout_state = 5;
+				return;
+			}
+			std::string src = pactl_find(run_read("pactl list short sources 2>/dev/null"), "usb-Audient", "pro-input");
+			if (!src.empty())
+				run_read(("pactl set-default-source '" + src + "' 2>/dev/null").c_str());
 		}
 		run_read(("pactl set-default-sink '" + sink + "' 2>/dev/null").c_str());
 		sysout_state = 2;
@@ -1529,7 +1559,7 @@ int main(int argc, char** argv)
 						if (opt_sysout)
 							sysout_claim();
 					}
-					hover_tip("Switch the Audient card to the sound server's Pro Audio\nprofile and make it the default output, on every launch and\nconnect: one honest multichannel output instead of the\ninvented stereo splits, reclaimed when a misclick in the\ndesktop's output menu flips it back. Needs PipeWire; without\nit this quietly does nothing. Turning it off changes nothing\nback.");
+					hover_tip("Make the Audient the default output, on every launch and\nconnect. A card split into invented stereo outputs is first\nmoved to the Pro Audio profile - one honest multichannel\noutput, with the default input following it. A card already\nshowing a single output keeps its profile untouched. Needs\nPipeWire; without it this quietly does nothing. Turning it\noff changes nothing back.");
 					{
 						// quiet when all is well; the failures explain themselves
 						static const char* sysout_note[] = { NULL, "claiming the output...", NULL,
