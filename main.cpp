@@ -1127,6 +1127,76 @@ bool toggleButton(std::string name, ImVec2 size, std::vector<bool>::reference va
 	return state;
 }
 
+// --watch-monitor: no window, just the monitor section on the wire. Every
+// readable corner - entity 0x36's selectors as bytes and as levels, the four
+// output volumes on feature unit 0x0c - read a few times a second, printing
+// whatever moved. This is the tool that finds where a front-panel control
+// actually lands: turn it while this runs and the selector names itself.
+// Reads only, so it is safe to hand to a tester (issue #26).
+static volatile sig_atomic_t watch_stop = 0;
+static void watch_sig(int) { watch_stop = 1; }
+
+static int watch_monitor()
+{
+	setup_devices();
+	int dev = device_probe();
+	if (dev < 0) {
+		fprintf(stderr, "no Audient device found\n");
+		return 1;
+	}
+	driver_indicator = dev;
+	apply_device_profile();
+	if (!driver_init(devices[dev].usb_id)) {
+		fprintf(stderr, "could not open the device - if BiD is running, tray included, close it first\n");
+		return 1;
+	}
+	printf("watching the %s - turn a knob or press a button; Ctrl-C ends it\n",
+		devices[dev].name.c_str());
+	signal(SIGINT, watch_sig);
+	signal(SIGTERM, watch_sig);
+	unsigned char b_prev[0x31] = {0};
+	float l_prev[0x31] = {0};
+	int16_t v_prev[4] = {0};
+	bool b_ok[0x31] = {false}, l_ok[0x31] = {false}, v_ok[4] = {false};
+	bool first = true;
+	while (!watch_stop) {
+		for (int sel = 0; sel <= 0x30 && !watch_stop; sel++) {
+			unsigned char b;
+			if (get_monitor_byte((uint16_t)(sel << 8), &b)) {
+				if (b_ok[sel] && b != b_prev[sel])
+					printf("0x36 selector 0x%02x byte:  0x%02x -> 0x%02x\n", sel, b_prev[sel], b);
+				b_prev[sel] = b;
+				b_ok[sel] = true;
+			}
+			float l;
+			if (get_monitor_level((uint16_t)(sel << 8), &l)) {
+				if (l_ok[sel] && (l > l_prev[sel] + 0.0005f || l < l_prev[sel] - 0.0005f))
+					printf("0x36 selector 0x%02x level: %.4f -> %.4f\n", sel, l_prev[sel], l);
+				l_prev[sel] = l;
+				l_ok[sel] = true;
+			}
+		}
+		for (int ch = 1; ch <= 4 && !watch_stop; ch++) {
+			int16_t v = 0;
+			if (libusb_control_transfer(devh, 0xa1, 0x1, (uint16_t)(0x0200 | ch),
+					(uint16_t)(0x0c00 | control_iface), (uint8_t*)&v, 2, 100) == 2) {
+				if (v_ok[ch - 1] && v != v_prev[ch - 1])
+					printf("0x0c volume ch %d: %d -> %d\n", ch, v_prev[ch - 1], v);
+				v_prev[ch - 1] = v;
+				v_ok[ch - 1] = true;
+			}
+		}
+		if (first) {
+			printf("baseline read, watching\n");
+			first = false;
+		}
+		fflush(stdout);
+		usleep(300000);
+	}
+	driver_shutdown();
+	return 0;
+}
+
 // Main code
 int main(int argc, char** argv)
 {
@@ -1135,6 +1205,9 @@ int main(int argc, char** argv)
 	for (int a = 1; a < argc; a++)
 		if (!strcmp(argv[a], "--tray"))
 			start_hidden = true;
+	for (int a = 1; a < argc; a++)
+		if (!strcmp(argv[a], "--watch-monitor"))
+			return watch_monitor();
 	glfwSetErrorCallback(glfw_error_callback);
 	if (!glfwInit())
 		return 1;
@@ -1288,21 +1361,49 @@ int main(int argc, char** argv)
 		static int asound_card = -1;
 		static int clock_src = -1;
 		static bool clock_int_ok = false, clock_opt_ok = false;
+		// A rate in motion is the one moment the device must not be spoken
+		// to: polling it while the firmware re-clocks is what killed the
+		// audio on an iD14 MKII whenever the rate was switched with BiD
+		// open (issue #26) - and the clock entity gets read here every
+		// second, through amixer no less. So any change in the momentary
+		// rate, the stream closing on its way to a new one included, buys
+		// a few seconds of silence on the wire; the file reads that detect
+		// it come first and touch no USB at all.
+		static double usb_quiet_until = 0.0;
+		static int momentary_prev = 0, last_hz = 0, zero_ticks = 0;
 		if (glfwGetTime() - last_rate > 1.0) {
 			last_rate = glfwGetTime();
 			sample_rate = read_sample_rate(devices[driver_indicator].usb_id);
+			if (sample_rate > 0) {
+				zero_ticks = 0;
+				// a new rate: the device just re-clocked, let it settle
+				if (last_hz > 0 && sample_rate != last_hz)
+					usb_quiet_until = glfwGetTime() + 3.0;
+				last_hz = sample_rate;
+			} else if (momentary_prev > 0) {
+				// a stream just closed - possibly to reopen at another
+				// rate, which is exactly the window to stay out of
+				zero_ticks = 1;
+				if (glfwGetTime() + 1.5 > usb_quiet_until)
+					usb_quiet_until = glfwGetTime() + 1.5;
+			} else if (zero_ticks < 1000)
+				zero_ticks++;
+			momentary_prev = sample_rate;
+			const bool clock_quiet = glfwGetTime() < usb_quiet_until;
 			// the rate list survives replugs empty, so retry until it fills
 			if (rates_dev != driver_indicator || card_rates.empty()) {
 				rates_dev = driver_indicator;
 				read_supported_rates(devices[driver_indicator].usb_id, card_rates);
 			}
 			asound_card = asound_card_of(devices[driver_indicator].usb_id);
-			if (asound_card >= 0)
-				read_clock_state(asound_card, &clock_src, &clock_int_ok, &clock_opt_ok);
-			else
+			if (asound_card < 0)
 				clock_src = -1;
-			// no stream running: ask the device itself, once probed willing
-			if (sample_rate <= 0 && connected && devrate_probe) {
+			else if (!clock_quiet)
+				read_clock_state(asound_card, &clock_src, &clock_int_ok, &clock_opt_ok);
+			// no stream running: ask the device itself, once probed willing -
+			// but only when it has been quiet a while, never in the gap a
+			// rate change leaves between two streams
+			if (sample_rate <= 0 && connected && devrate_probe && !clock_quiet && zero_ticks >= 2) {
 				int hz = 0;
 				if (get_device_rate(&hz) && hz >= 8000 && hz <= 768000)
 					sample_rate = hz;
@@ -1333,7 +1434,8 @@ int main(int argc, char** argv)
 		// round robin, one per tick, which still catches them in a quarter
 		// of a second. Two transfers a tick keeps this far away from the
 		// rate that saturates the protocol.
-		if (connected && hw_readback && glfwGetTime() - last_poll > 0.05 && !ImGui::IsAnyItemActive()) {
+		if (connected && hw_readback && glfwGetTime() >= usb_quiet_until
+				&& glfwGetTime() - last_poll > 0.05 && !ImGui::IsAnyItemActive()) {
 			last_poll = glfwGetTime();
 			float v;
 			if (get_monitor_volume(&v) && (v > levels[0] + 0.002f || v < levels[0] - 0.002f))
@@ -1355,7 +1457,8 @@ int main(int argc, char** argv)
 		// Meters run on their own clock, and unlike the controls they keep
 		// going while a fader is being dragged - that is exactly when they
 		// are being watched.
-		if (connected && meter_readback && glfwGetTime() - last_meter > 0.033) {
+		if (connected && meter_readback && glfwGetTime() >= usb_quiet_until
+				&& glfwGetTime() - last_meter > 0.033) {
 			last_meter = glfwGetTime();
 			get_meters(meter_raw, 16);
 		}
