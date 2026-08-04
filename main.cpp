@@ -193,6 +193,9 @@ void TextCentered(const char* text) {
 // never coupled to the monitor knob by surprise.
 static const int route_default[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
 static int route_state[4] = { ROUTE_MAIN, ROUTE_ALT, ROUTE_CUE_A, ROUTE_DAW };
+// the alternate speakers' level offset, in dB; lives with the desk state
+// and rides the volume while ALT is engaged - see alt_shifted below
+static int alt_trim_db = -6;
 
 // How many fader pages this model has: the main mix plus its cues, within
 // what the state file can hold.
@@ -357,6 +360,9 @@ static void save_state_to(const std::string& path)
 	for (size_t i = 0; i < n && i < chan_name.size(); i++)
 		if (!chan_name[i].empty())
 			fprintf(f, "name %zu %s\n", i, chan_name[i].c_str());
+	// after the names, whose reader stops at the first key that is not
+	// one - which is exactly how this line is found again
+	fprintf(f, "alttrim %d\n", alt_trim_db);
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -459,6 +465,7 @@ static bool load_state_from(const std::string& path)
 	bool extra4 = extra3 && fscanf(f, "%15s %d", key, &lbsrc) == 2 && strcmp(key, "loopback") == 0;
 	// channel names, one line each, written only for the renamed
 	std::vector<std::string> nm((size_t)n);
+	int atrim = -6;
 	if (extra4) {
 		long ni = 0;
 		while (fscanf(f, "%15s %ld", key, &ni) == 2 && strcmp(key, "name") == 0) {
@@ -472,6 +479,10 @@ static bool load_state_from(const std::string& path)
 			if (ni >= 0 && ni < n && *t)
 				nm[ni] = t;
 		}
+		// the loop stops on the first key that is not a name - which is
+		// where the alt trim line lives, already parsed into key and ni
+		if (!strcmp(key, "alttrim"))
+			atrim = (int)(ni < -24 ? -24 : (ni > 0 ? 0 : ni));
 	}
 	fclose(f);
 	if (!ok)
@@ -509,6 +520,7 @@ static bool load_state_from(const std::string& path)
 		chan_mono.assign(n, false);
 	route_state[3] = sane_route(3, (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3]);
 	chan_name.assign(nm.begin(), nm.end());
+	alt_trim_db = atrim;
 	return true;
 }
 
@@ -1007,6 +1019,29 @@ static float meter_disp[16] = {};
 static float meter_peak[16] = {};
 
 // Take the front panel's word for the monitor section: those controls exist on
+// The alt trim, BiD's own: the device's trim selector (0x36/0x17)
+// swallows writes and gates nothing, but the volume node scales the alt
+// feed just as it scales the mains. So the trim is a dB offset added to
+// the volume while ALT is engaged and taken away when it lifts - the
+// second pair level-matched, the knob live on both sets, which is
+// everything the official trim promises. Integer dB, kept per device in
+// the state file.
+static float alt_shifted(float v)
+{
+	if (!master_bools[1])
+		return v;
+	// the volume's 0..1 travel is linear in dB, 128 dB end to end
+	float s = v + alt_trim_db / 128.0f;
+	return s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+}
+static float alt_unshifted(float v)
+{
+	if (!master_bools[1])
+		return v;
+	float s = v - alt_trim_db / 128.0f;
+	return s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+}
+
 // the device itself and can be changed without the application ever knowing.
 static void sync_state_from_device()
 {
@@ -1019,8 +1054,10 @@ static void sync_state_from_device()
 		}
 	}
 	float v;
+	// with ALT engaged the device holds knob + trim; keep the knob's own
+	// position here, or the trim would compound on the next write
 	if (get_monitor_volume(&v))
-		levels[0] = v;
+		levels[0] = alt_unshifted(v);
 }
 
 // Nothing in the matrix or the output feature unit can be read back, so on
@@ -1100,7 +1137,6 @@ static int optical_mode[2] = { -1, -1 };
 static int talk_source = -1;   // 0x10 mic 1, 0x11 mic 2, 0x12 digi 1
 static int mono_mode = -1;     // 0 sum to centre, 1 left only, 2 right only
 static float dim_trim = -1.0f;
-static float alt_trim = -1.0f;
 static bool try_connect()
 {
 	transport_refused = false;
@@ -1115,7 +1151,7 @@ static bool try_connect()
 		// no readback: the saved level is the only truth there is, and
 		// without this push the knob on screen and the hardware disagree
 		// until the first nudge
-		set_speaker_volume(levels[0]);
+		set_speaker_volume(alt_shifted(levels[0]));
 	meter_readback = get_meters(meter_raw, 16) != 0;
 	optical_mode[0] = optical_mode[1] = -1;
 	for (int w = 0; w < (devices[driver_indicator].has_optical_out ? 2 : 1); w++)
@@ -1127,7 +1163,6 @@ static bool try_connect()
 		talk_source = get_monitor_byte(0x0800, &b) ? b : -1;
 		mono_mode = get_monitor_byte(0x0100, &b) ? b : -1;
 		dim_trim = get_monitor_level(0x0600, &f) ? f : -1.0f;
-		alt_trim = get_monitor_level(0x1700, &f) ? f : -1.0f;
 	}
 	devrate_probe = true;
 	if (!push_state_to_device()) {
@@ -1390,8 +1425,12 @@ int main(int argc, char** argv)
 		else if (tray_action >= TRAY_MASTER) {
 			int idx = tray_action - TRAY_MASTER;
 			master_bools[idx] = !master_bools[idx];
-			if (connected)
+			if (connected) {
 				set_bool_state(idx);
+				// alt flipped: the trim rides the volume, re-aim it now
+				if (idx == 1)
+					set_speaker_volume(alt_shifted(levels[0]));
+			}
 			tray_set_master(idx, master_bools[idx]);
 		}
 		// the rate costs two file reads, so once a second is plenty
@@ -1479,8 +1518,13 @@ int main(int argc, char** argv)
 				&& glfwGetTime() - last_poll > 0.05 && !ImGui::IsAnyItemActive()) {
 			last_poll = glfwGetTime();
 			float v;
-			if (get_monitor_volume(&v) && (v > levels[0] + 0.002f || v < levels[0] - 0.002f))
-				levels[0] = v;
+			// the device carries knob + alt trim while ALT is engaged, so
+			// compare against the shifted value and keep the bare knob
+			if (get_monitor_volume(&v)) {
+				float eff = alt_shifted(levels[0]);
+				if (v > eff + 0.002f || v < eff - 0.002f)
+					levels[0] = alt_unshifted(v);
+			}
 			// and while the knob is showing the phones, the phones too, so it
 			// follows the shared encoder on the front the way the monitor does
 			if (knob_target == 1 && get_hp_volume(&v)
@@ -2303,7 +2347,7 @@ int main(int argc, char** argv)
 					ImGuiKnobFlags_NoTitle | ImGuiKnobFlags_NoInput)) {
 				if (connected) {
 					if (knob_target) set_hp_volume(levels[1]);
-					else             set_speaker_volume(levels[0]);
+					else             set_speaker_volume(alt_shifted(levels[0]));
 				}
 			}
 			hover_tip(knob_target ? "Headphone level: BiD's own, ahead of the knob on the box"
@@ -2353,7 +2397,7 @@ int main(int argc, char** argv)
 			ImGui::SameLine();
 			const bool has_alt = devices[driver_indicator].has_alt;
 			if (!has_alt) ImGui::BeginDisabled();
-			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1);} tray_set_master(1, master_bools[1]);};
+			if (toggleButton("ALT", ImVec2(btn_w, btn_h), master_bools[1])) { if (connected) {set_bool_state(1); set_speaker_volume(alt_shifted(levels[0]));} tray_set_master(1, master_bools[1]);};
 			if (!has_alt) ImGui::EndDisabled();
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
 				ImGui::OpenPopup("alttrim");
@@ -2361,15 +2405,14 @@ int main(int argc, char** argv)
 			                  : "This model has no alternate speaker output");
 			if (ImGui::BeginPopup("alttrim")) {
 				ImGui::TextDisabled("Alternate speakers' trim");
-				if (alt_trim >= 0.0f) {
-					int pct = (int)(alt_trim * 100.0f + 0.5f);
-					ImGui::SetNextItemWidth(160.0f * main_scale);
-					if (ImGui::SliderInt("##alttrim", &pct, 0, 100, "%d%%")) {
-						alt_trim = pct / 100.0f;
-						if (connected) set_monitor_level(0x1700, alt_trim);
-					}
-				} else
-					ImGui::TextDisabled(connected ? "no answer from the device" : "connect first");
+				// BiD's own trim: a dB offset riding the volume while ALT
+				// is engaged, since the device's trim selector takes no
+				// writes. Applied live when the alts are playing.
+				ImGui::SetNextItemWidth(160.0f * main_scale);
+				if (ImGui::SliderInt("##alttrim", &alt_trim_db, -24, 0, "%d dB")) {
+					if (connected && master_bools[1])
+						set_speaker_volume(alt_shifted(levels[0]));
+				}
 				ImGui::EndPopup();
 			}
 			ImGui::SameLine();
