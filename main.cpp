@@ -54,6 +54,10 @@ std::vector<float> levels = {0.0f,1.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0
 // Only boxes that share an encoder between the two are given the choice.
 static int knob_target = 0;
 static std::vector<bool> knob_focus = {true, false};
+// Which families of strip are on screen - mics, the digital inputs, the pair
+// coming back from the computer - the way the official app files them across
+// the top. Hiding a group only hides it: its levels are still in the mix.
+static bool show_group[3] = {true, true, true};
 // One set of faders serves all three matrix buses; the tabs above the strips
 // pick which mix is being edited, and every mix keeps its own levels and pans.
 static std::vector <float> bar_value[MIXER_BUSES];
@@ -343,6 +347,8 @@ static void save_state_to(const std::string& path)
 	for (size_t i = 0; i < n && i < chan_name.size(); i++)
 		if (!chan_name[i].empty())
 			fprintf(f, "name %zu %s\n", i, chan_name[i].c_str());
+	// one word and one number, so the name loop above can stop on it cleanly
+	fprintf(f, "groups %d\n", (show_group[0] ? 1 : 0) | (show_group[1] ? 2 : 0) | (show_group[2] ? 4 : 0));
 	fclose(f);
 	// written to the side and renamed over, so a crash mid-write cannot
 	// leave a half file where the good one was
@@ -445,6 +451,7 @@ static bool load_state_from(const std::string& path)
 	bool extra4 = extra3 && fscanf(f, "%15s %d", key, &lbsrc) == 2 && strcmp(key, "loopback") == 0;
 	// channel names, one line each, written only for the renamed
 	std::vector<std::string> nm((size_t)n);
+	long gmask = -1;
 	if (extra4) {
 		long ni = 0;
 		while (fscanf(f, "%15s %ld", key, &ni) == 2 && strcmp(key, "name") == 0) {
@@ -458,6 +465,10 @@ static bool load_state_from(const std::string& path)
 			if (ni >= 0 && ni < n && *t)
 				nm[ni] = t;
 		}
+		// the loop above stops on the first line that is not a name, key and
+		// value already in hand: the group filter is written as exactly that
+		if (!strcmp(key, "groups"))
+			gmask = ni;
 	}
 	fclose(f);
 	if (!ok)
@@ -495,6 +506,8 @@ static bool load_state_from(const std::string& path)
 		chan_mono.assign(n, false);
 	route_state[3] = (extra4 && lbsrc >= 0 && lbsrc < ROUTE_SOURCES) ? lbsrc : route_default[3];
 	chan_name.assign(nm.begin(), nm.end());
+	for (int g = 0; g < 3; g++)
+		show_group[g] = gmask < 0 || ((gmask >> g) & 1);
 	return true;
 }
 
@@ -1352,6 +1365,31 @@ int main(int argc, char** argv)
 					const char* mix_names[MIXER_BUSES] = { "MAIN MIX", buses > 2 ? "CUE A" : "CUE", "CUE B" };
 					for (int m = 0; m < buses; m++)
 						if (ImGui::BeginTabItem(mix_names[m], nullptr, m == want_mix_tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) { current_mix = m; ImGui::EndTabItem(); }
+					// at the far end, which families of strip are on screen, the
+					// way the official app files them across its top. A hidden
+					// group is out of sight only: it is still in every mix.
+					{
+						const device_properties &gdev = devices[driver_indicator];
+						const bool have[3] = { gdev.mic_inputs > 0,
+							gdev.digital_inputs - (gdev.monitor_pair >= 0 ? 2 : 0) > 0,
+							gdev.monitor_pair >= 0 };
+						const char* gname[3] = { "MIC", "DIGI", "DAW" };
+						const char* gtip[3] = { "Show or hide the mic strips",
+							"Show or hide the digital input strips",
+							"Show or hide the pair that comes back from the computer" };
+						for (int g = 0; g < 3; g++) {
+							if (!have[g])
+								continue;
+							if (!show_group[g])
+								ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+							if (ImGui::TabItemButton(gname[g], ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
+								show_group[g] = !show_group[g];
+							if (!show_group[g])
+								ImGui::PopStyleColor();
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("%s", gtip[g]);
+						}
+					}
 					if (ImGui::TabItemButton("?", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip)) {}
 					if (ImGui::IsItemHovered())
 						ImGui::SetTooltip("These are the three mixes the hardware can build.\n"
@@ -1376,7 +1414,13 @@ int main(int argc, char** argv)
 				// fader with its meter, pan pot, pan caption. The fader takes whatever
 				// height the rest leaves over.
 				const float fader_w = 46.0f * main_scale;
-				const int chan_count = devices[driver_indicator].mic_inputs + devices[driver_indicator].digital_inputs;
+				// only the groups on screen share out the width, so hiding one
+				// widens what is left instead of leaving a gap where it stood
+				const int chan_count =
+					(show_group[0] ? devices[driver_indicator].mic_inputs : 0)
+					+ (show_group[1] ? devices[driver_indicator].digital_inputs
+						- (devices[driver_indicator].monitor_pair >= 0 ? 2 : 0) : 0)
+					+ (show_group[2] && devices[driver_indicator].monitor_pair >= 0 ? 2 : 0);
 				const float label_w = ImGui::CalcTextSize("DIGI 00").x;
 				float chan_w = ImMax(fader_w, label_w);
 				if (chan_count > 0)
@@ -1682,7 +1726,7 @@ int main(int argc, char** argv)
 				// own slightly lifted panel, with the link bar under it, while the
 				// input strips scroll past next to it.
 				const int mon_idx = dev.monitor_pair >= 0 ? dev.mic_inputs + dev.monitor_pair : -1;
-				if (mon_idx >= 0) {
+				if (mon_idx >= 0 && show_group[2]) {
 					ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.125f, 0.135f, 0.158f, 1.00f));
 					ImGui::BeginChild("PinnedOuts", ImVec2(chan_w * 2.0f + style.ItemSpacing.x, strip_h));
 					draw_strip(mon_idx,     "OUT L", chip_out, "OutL", out_link[0] ? mon_idx + 1 : -1, false);
@@ -1717,7 +1761,7 @@ int main(int argc, char** argv)
 				ImGui::BeginChild("Faders", ImVec2(-(chan_w + style.ItemSpacing.x), strip_h), 0, ImGuiWindowFlags_HorizontalScrollbar);
 				bool first = true;
 				auto next_slot = [&]() { if (!first) ImGui::SameLine(); first = false; };
-				for (int i = 0; i < dev.mic_inputs; ) {
+				for (int i = 0; show_group[0] && i < dev.mic_inputs; ) {
 					next_slot();
 					if (i + 1 < dev.mic_inputs) {
 						draw_pair(i, i + 1, "MIC " + std::to_string(i + 1), "MIC " + std::to_string(i + 2), chip_mic, "Mic" + std::to_string(i), "Mic" + std::to_string(i + 1));
@@ -1727,7 +1771,7 @@ int main(int argc, char** argv)
 						i++;
 					}
 				}
-				for (int i = 0; i < dev.digital_inputs; ) {
+				for (int i = 0; show_group[1] && i < dev.digital_inputs; ) {
 					if (dev.monitor_pair >= 0 && (i == dev.monitor_pair || i == dev.monitor_pair + 1)) {
 						i++; // pinned on the left as OUT L / OUT R
 						continue;
@@ -1741,6 +1785,15 @@ int main(int argc, char** argv)
 						draw_strip(dev.mic_inputs + i, "DIGI " + std::to_string(i + 1), chip_digi, "Digi" + std::to_string(i));
 						i++;
 					}
+				}
+				if (first) {
+					// every group hidden: say what brings the strips back,
+					// rather than leaving an empty panel to look broken
+					ImGui::PushFont(font, 13.0f);
+					ImGui::Dummy(ImVec2(0, strip_h * 0.35f));
+					ImGui::TextDisabled("   No input strips are shown.");
+					ImGui::TextDisabled("   The buttons at the right of the tabs bring them back.");
+					ImGui::PopFont();
 				}
 				ImGui::EndChild();
 				ImGui::PopStyleColor();
