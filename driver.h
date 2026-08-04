@@ -135,18 +135,21 @@ inline uint8_t route_code(int out, int source)
   int side = out & 1; // left or right half of the output's stereo pair
   switch (source) {
     case ROUTE_MAIN:  return 0x25 + side;
-    case ROUTE_ALT:   return 0x1e + side;
-    // Measured on a real iD24 (loopback mirror + ears, see PROTOCOL.md):
-    // 0x23 and 0x24 are not a stereo pair. They are the MONO SUMS of cue
-    // A and cue B - writing them as a pair is why "phones on Cue A"
-    // played cue A's sum in one ear and cue B's sum in the other. Until
-    // cue A's true stereo pair is measured, both halves get the cue A
-    // sum: honest mono in both ears. Cue B's stereo pair 0x20/0x21 is
-    // ear-verified and real. 0x22 is not a usable source: an output sent
-    // there plays a stuck full-level feed no fader controls.
-    case ROUTE_CUE_A: return 0x23;
+    // Alt's routing code is not known. 0x1e/0x1f wore that label for
+    // years, but a beep-per-code hunt by ear proved them to be cue A's
+    // stereo pair (see PROTOCOL.md). Until alt's own code surfaces, the
+    // alt column feeds the same monitor path as Main - the ALT toggle in
+    // the monitor section still does the speaker switching itself.
+    case ROUTE_ALT:   return 0x25 + side;
+    // Ear-verified on a real iD24, speakers and phones alike: 0x1e is
+    // cue A left, 0x1f cue A right. What BiD wrote before, 0x23/0x24,
+    // are the MONO SUMS of cue A and cue B - one bus summed per code -
+    // which is why "phones on Cue A" once played cue A's sum in one ear
+    // and cue B's in the other. Cue B's pair 0x20/0x21 was right all
+    // along. 0x22 is not a usable source: a stuck full-level feed.
+    case ROUTE_CUE_A: return 0x1e + side;
     case ROUTE_CUE_B: return 0x20 + side;
-    case ROUTE_DAW:   return out; // output n plays DAW channel n
+    case ROUTE_DAW:   return out; // output n plays DAW channel n, 0-based
   }
   return 0x25 + side;
 }

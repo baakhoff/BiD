@@ -195,11 +195,14 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 ### BiD
 
 * Unreleased
-   * Cue A on the iD24 stops lying: the codes BiD wrote as its stereo pair
-     turned out to be the mono sums of cue A and cue B — one ear played
-     each — measured with a loopback mirror and written up in
-     docs/PROTOCOL.md. Until the true stereo pair is found, cue A routes
-     as honest mono on both halves; cue B's pair is real and verified
+   * Cue A on the iD24 is stereo at last. The codes BiD wrote as its
+     pair turned out to be the mono sums of cue A and cue B — one ear
+     played each — and the true pair, 0x1e/0x1f, had spent years
+     mislabelled as Alt. Found by ear, one beep per candidate code,
+     verified left/right on the speakers and the phones alike; the whole
+     hunt and the corrected code table are in docs/PROTOCOL.md. Alt's
+     own routing code is now the open question — its column feeds the
+     monitor path until it surfaces
    * The iD14 family gets its second cue back and, on the MKII, the shared
      encoder's SPEAKERS/PHONES buttons under the knob, like the official
      console. The headphone level is read from the device on connect

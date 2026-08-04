@@ -64,19 +64,22 @@ output index. Outputs 0..5 are the analog side — 1/2 main, 3/4 line, then the
 phones — 8..9 the optical pair, and 10..11 the loopback pair. The byte picks
 what that output plays:
 
-    main mix   0x25 left half of the pair, 0x26 right
-    alt        0x1e / 0x1f    the same feed for the alternate speakers *
+    DAW n      0x00 + n, zero-based: playback channel n straight from the
+               computer at full level, outside the monitor section — code
+               0x00 carried DAW 1 to speakers and phones alike, by ear
+    input n    0x10 + n: the physical input's direct tap — 0x11 put a live
+               mic 2 on whatever output it was routed to, loud, by ear
+    cue A      0x1e / 0x1f    a real stereo pair, ear-verified on the
+               speaker outs and the phones; wore the label "alt" for years
     cue B      0x20 / 0x21    a real stereo pair, ear-verified
     (gap)      0x22           not a usable source, see below
     cue sums   0x23 = cue A summed to mono, 0x24 = cue B summed to mono —
                NOT a stereo pair, though BiD long wrote them as one
-    DAW n      the output's own index: a fixed full-level feed straight from
-               the computer, outside the monitor section, so the volume knob
-               does not apply to it *
-
-    * suspected wrong, see the measured findings below: 0x1e/0x1f is the
-      prime suspect for cue A's true stereo pair, and the power-on defaults
-      say the DAW codes are one-based, not the output's own index
+    main mix   0x25 left half of the pair, 0x26 right — the monitor
+               section's feed, so volume, dim and cut ride along
+    alt        code unknown. 0x1e/0x1f was a mislabel; until the real one
+               surfaces BiD's alt column feeds the monitor path like Main,
+               and the ALT toggle does the speaker switching itself
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on
@@ -93,40 +96,52 @@ as BiD did, put cue A's sum in one ear and cue B's sum in the other —
 every fader on the cue A page moved one ear only, the other ear held a mix
 nothing on that page could touch, and a centred pan was 6 dB louder than
 either extreme, the sum's fingerprint. The old observation that a phones
-right ear "tracked cue A's left cells" was the same sum, half-read. Until
-cue A's true stereo pair is measured, BiD routes cue A as its sum on both
-halves: honest mono in both ears.
+right ear "tracked cue A's left cells" was the same sum, half-read.
 
-### Measured with a loopback mirror (iD24)
+The true pair was found the plain way: a script that beeps once through
+every candidate code while a person listens. `0x1e` carried cue A's left
+cell and `0x1f` its right, cleanly separated, on the speaker outputs and
+the phones alike — the codes the decode had always labelled "alt". Where
+alt's real code lives is now the open question; nothing else in
+`0x00..0x30` answered for it, though an alt feed would sit silent behind
+the ALT toggle and a hunt with ALT engaged has not been run.
 
-The sums above were pinned down with an instrument worth writing up. On
-the iD24 with its optical input in S/PDIF mode, capture channels 5 and 6
-are a **mirror of outputs 0 and 1**, post-mixer and post-routing: whatever
-code output 0 holds, channel 5 records it. Play a tone into one DAW
-return, light a single matrix cell, put a candidate code on output 0, and
-the code's meaning is an RMS number instead of an opinion. Main L and R
-proved to be exactly matrix columns 0 and 1, single-cell isolated, with
-perfect stereo separation.
+### What the measuring session actually taught (iD24)
 
-Routing is also **readable**: the same selector answers GET, one byte per
-output, so the whole 16-output table can be read back at any time. The
-power-on state of the eight outputs BiD never writes (6..9, 12..15) reads
-back as `0x07..0x0a` and `0x0d..0x10` — each output's index **plus one**.
-The DAW-thru code space is one-based, which makes BiD's own-index DAW
-codes suspect of being off by one on every output, pending one mirror
-measurement to confirm.
+Three instruments came out of it, each with its limits learned the hard
+way.
 
-The hazard that ended the measuring session: sweeping unknown codes
-(`0x17..0x1d`) across a live output crashed the router — the device
-re-enumerated by itself, then passed no audio on any path while every
-readback answered correctly. On a bus-powered box a replug clears this;
-the iD24 is DC-powered, so a USB reset does **not** reboot the DSP and
-only the power switch brings the audio back. Probe unknown codes with a
-liveness check after each write and a hand near that switch.
+**The monitor-feed recorder.** Capture channels 5 and 6 replay output 0
+and 1 — but *only while those outputs carry the monitor feed*
+(`0x25/0x26`). Any other code records silence there even when the
+physical speakers are playing it, which made the recorder useless for
+code hunting and, for one long evening, made every working code look
+dead. It remains excellent for matrix work: Main L and R proved to be
+exactly matrix columns 0 and 1, single-cell isolated, perfect stereo
+separation.
 
-Still open: cue A's true stereo pair (`0x1e/0x1f`, currently labelled
-alt, is the prime suspect — one mirror measurement away), and whether
-"alt" then lives lower still.
+**Readback.** Routing answers GET, one byte per output, the whole
+16-output table at any time — and the mixer matrix answers GET per cell
+too. BiD could sync both from the device instead of pushing blind. The
+power-on routing state of the outputs BiD never writes reads back as the
+output's index plus one (`0x07..0x10`), which briefly suggested one-based
+DAW codes; the ear test settled it the other way — `0x00` is DAW 1, the
+codes are zero-based, and the defaults just point one channel up for
+reasons the firmware keeps to itself.
+
+**The beep-per-code hunt.** A script that routes an output to each
+candidate code in turn and plays one quiet beep riding a single matrix
+cell, while a person says which side it came from. Slow, human, and the
+only instrument here that measures the truth of a code on a *physical*
+output. It found cue A's pair, the input taps and the DAW base in one
+evening.
+
+Two cautions for the next session. The mixer cell values share the
+output volumes' scale: **dB in a u16, not a fraction** — half travel is
+minus 64 dB, so a "quiet" test gain of 0.12 is silence, which
+masqueraded as a router crash here and burned a power cycle on a healthy
+device. And code `0x11` routes a live microphone at full level to
+whatever output it lands on: mute the mics before a hunt.
 
 `0x25/0x26` is not a raw tap of the main mix bus: it is the monitor
 section's output, so the volume knob, dim and cut ride along on every output
