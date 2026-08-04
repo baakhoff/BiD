@@ -99,6 +99,22 @@ knob is a USB HID device the kernel binds as a mouse, so press the iD
 button, hover the pointer over anything scrollable, and turn the encoder.
 No driver and no configuration involved — confirmed on the iD24.
 
+### Claiming the system output
+
+Menu → *Claim the system output* makes the Audient the default output on
+every launch and every connect. On PipeWire, a card the sound server has
+split into invented stereo outputs (the iD14 family's "Line" and
+"Headphones" twins) is first moved to the Pro Audio profile — one honest
+multichannel output, with the default input following it — while a card
+already showing a single output keeps its profile, and its node names,
+untouched. Off by default. Turning it off changes nothing back, and when
+the claim cannot act — no PipeWire, no card, no such profile — the menu
+says which it was.
+
+The reassertion is the point: the desktop's output menu offers every
+profile of every card as a clickable entry, so one misclick can flip the
+card back and the choice would otherwise quietly stick.
+
 ### udev rules
 
 By default the USB device node is root-only, so BiD needs a udev rule to run
@@ -154,6 +170,13 @@ then restart it with `systemctl --user restart wireplumber`. Desktop volume
 becomes a software gain, and the hardware level belongs to BiD and the
 physical knob alone.
 
+When a front-panel control seems to land nowhere in BiD — a knob the app
+does not follow, a button with no effect — close BiD (tray included) and
+run `BiD --watch-monitor`: it reads the monitor section a few times a
+second and prints whichever selector moved, stamped with seconds since
+start. Turn the control, paste the output into an issue, and the selector
+names itself. It only reads, so it is safe to run on any model.
+
 A practical companion for all of this is PavuControl (`pavucontrol`): it
 shows every device PipeWire offers, switches profiles (that is where
 `Pro Audio` lives), and picks the default output. Most usefully, its
@@ -171,6 +194,35 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 
 ### BiD
 
+* Unreleased
+   * The iD14 family gets its second cue back and, on the MKII, the shared
+     encoder's SPEAKERS/PHONES buttons under the knob, like the official
+     console. The headphone level is read from the device on connect
+     instead of guessed — pushing a stored level into an unseen control
+     was how headphones went silent with nothing on screen to explain it
+   * MixiD's original routing table returns for the iD14 family — it was
+     written on one — and an iD14 MKII owner confirmed it on hardware
+     (#26): audio followed the matrix through every assignment, so the
+     MKII is marked verified and its routing is pushed on connect
+   * The same tester settled what the volume knob governs: on the MKII it
+     acts on the main-mix path, and cue-fed outputs play at fixed level by
+     the hardware's own design — recorded in docs/PROTOCOL.md
+   * Faders speak dB, with the scale printed on both flanks, and the meter
+     moved inside the fader slot as a bead ladder showing the channel's
+     input
+   * Every device gets a default desk: *Set as default* keeps the desk as
+     it is now (or any preset), *Restore default* brings it back — levels,
+     pans, names, routing — and pushes it to the box. Renames hit the disk
+     the moment they are committed
+   * Switching the sample rate with BiD open no longer risks wedging the
+     device: BiD watches the momentary rate by file reads alone and goes
+     silent on the wire for a few seconds around any change (#26, and
+     reproduced on the iD24)
+   * `BiD --watch-monitor` prints which monitor selector moves as a
+     front-panel control is turned — the tool for mapping controls that
+     BiD does not follow yet
+   * Menu → *Claim the system output* makes the Audient the default
+     output on every launch and connect; see Usage
 * 0.2.3
    * The udev rule moves to `70-audient.rules`, where its `uaccess` tag is
      honoured — udev applies seat ACLs at 73, so the old `84-` file granted

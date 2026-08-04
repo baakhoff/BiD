@@ -221,6 +221,40 @@ assignments swapped the result. BiD therefore pushes routing on connect
 for the MKII. The first-generation iD14 speaks the same table but keeps
 the cautious flags until an owner of one reports.
 
+## A rate change is no time to talk
+
+Switching the sample rate closes the running stream and reopens it at the
+new one, and in between the firmware re-clocks its DSP. Control traffic in
+that window can wedge the whole control plane. On an iD14 MKII, switching
+48 to 96 kHz with BiD open killed the audio every time - whoever did the
+switching, BiD's menu or a pw-metadata script - while the same switch with
+BiD closed was fine (issue #26). The wedge was then reproduced on an iD24
+when a profile change churned every stream while an older BiD kept
+polling: the kernel's own clock-validity reads began failing alongside
+BiD's commands, and only a replug - or a USB reset, the same thing without
+the cable - brought the control plane back.
+
+No single request is the poison; the pressure is: meters at 30 Hz, the
+monitor volume at 20 Hz, the clock selector once a second through amixer
+(kernel-mediated, so it reaches the clock entity like any other), and a
+device-rate read that used to fire precisely in the gap between the two
+streams. BiD's answer is to watch the momentary rate in /proc/asound,
+which costs no USB at all and is read before anything else each tick: any
+change - the stream closing on its way to a new rate included - silences
+every poll for a few seconds, and the device-rate fallback waits out two
+quiet ticks besides, so it can never land inside a reopen.
+
+## Watching the monitor section move
+
+`BiD --watch-monitor` is the shipped form of the technique the F-button
+hunt used. With the app closed - the interface takes one claimant - it
+reads entity 0x36's selectors 0x00..0x30 as bytes and as levels, plus the
+four output volumes on feature unit 0x0c, a few times a second, and prints
+whatever moved with a seconds-since-start stamp. Turn a knob or press a
+button while it runs and the selector names itself. It only ever reads,
+so it is safe to hand to a tester on any model; it is how the iD14 MKII's
+phones encoder is being located.
+
 ## The F buttons
 
 F1..F3 emit nothing over USB on their own. Without the official app they do
