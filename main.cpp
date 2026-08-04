@@ -2555,11 +2555,7 @@ int main(int argc, char** argv)
 					"then playing at the knob's level while the mains mute. The cues are\n"
 					"separate mixes, clear of the monitor section, so the speaker buttons\n"
 					"leave them alone and the Phones dial sets the phones' level. DAW Thru\n"
-					"comes straight from the computer at full level - no control at all.\n"
-					"\n"
-					"Loopback is not a jack: whatever it plays arrives back in the\n"
-					"computer as inputs 11+12, ready to record or stream. On that row,\n"
-					"DAW Thru means playback channels 11+12 looped straight back.");
+					"comes straight from the computer at full level - no control at all.");
 			ImGui::Spacing();
 
 			if (ImGui::BeginTable("routing", 1 + nsrc, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH))
@@ -2633,7 +2629,7 @@ int main(int argc, char** argv)
 			if (ImGui::Button("Reset to defaults")) {
 				reset_routing();
 				if (connected && rdev.route_scheme != ROUTE_SCHEME_NONE)
-					for (int p = 0; p < 4; p++)
+					for (int p = 0; p < (rdev.has_loopback ? 4 : 3); p++)
 						set_route_pair(p == 3 ? 5 : p, route_state[p]);
 			}
 			ImGui::End();

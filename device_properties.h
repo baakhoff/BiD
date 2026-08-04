@@ -191,7 +191,11 @@ void setup_devices()
 	iD24.mixer_known = true;
 	iD24.routing_known = true;
 	iD24.route_scheme = 1;
-	iD24.has_loopback = true; // outputs 10 and 11, back to the host
+	// The loopback sits out 0.3.0: routing writes to its pair latch but
+	// no capture channel ever carries the signal, and its enable answered
+	// to nothing reachable (PROTOCOL.md). It returns in 0.4.0 once the
+	// official app's traffic shows the write that wakes it.
+	iD24.has_loopback = false;
 	devices.push_back(iD24);
 
 	struct device_properties iD44;
@@ -225,7 +229,7 @@ void setup_devices()
 	iD48.usb_id = 0x0012;
 	iD48.matrix_inputs = 32;
 	iD48.daw_returns = 8;
-	iD48.has_loopback = true; // output 0x16
+	iD48.has_loopback = false; // benched with the iD24's, see above
 	iD48.mic_inputs = 8;
 	iD48.digital_inputs = 16;
 	iD48.outputs = 4;

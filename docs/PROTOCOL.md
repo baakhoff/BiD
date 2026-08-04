@@ -114,7 +114,8 @@ aliases selector reads (everything answers 0x25), so nothing hides
 there either. What remains is a memory-block write, another rate mode,
 or plain capture of the official app using that very menu — the fourth
 item on the Windows capture agenda, and the strongest argument for
-finally running it.
+finally running it. BiD 0.3.0 ships without the loopback row for this
+reason; it returns the release after the capture names the enable.
 
 The long alt hunt earned some lessons worth keeping. 0x25/0x26 works on
 the alt outputs too, knob and all, while ALT is off - an early "silent"

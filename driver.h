@@ -116,7 +116,12 @@ enum route_scheme {
 
 // From MixiD's routeToggle, one row per output, columns Main / Alt / Cue A /
 // Cue B / DAW. Main and Alt alternate by side; the cues carried a single
-// code for both halves in the original capture.
+// code for both halves in the original capture - which the iD24's ear-mapped
+// layout now explains: single cue codes are the MONO SUMS, sitting two below
+// Main exactly as the iD24's 0x23/0x24 sit below its 0x25/0x26. The same
+// offsets predict this family's true stereo pairs at 0x14/0x15 (cue A) and
+// 0x16/0x17 (cue B), and raw taps at 0x12/0x13 - all unverified, awaiting an
+// owner's ears (docs/TESTING.md), so the verified sums stay in use here.
 inline uint8_t route_code_id14(int out, int source)
 {
   int side = out & 1;

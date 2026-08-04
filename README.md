@@ -3,8 +3,9 @@
 Unofficial control panel and mixer software for the Audient iD series USB
 audio interfaces on Linux: iD4, iD14, iD14 MKII, iD22, iD24, iD44 and iD48.
 Audient ships no Linux software or driver for the iD range — BiD is the
-missing mixer: mixes and cues, routing, loopback, VU meters and the full
-monitor section, while audio keeps playing. Built on libusb, glfw and imgui.
+missing mixer: mixes and stereo cues, routing, alternate speaker switching,
+VU meters and the full monitor section, while audio keeps playing. Built on
+libusb, glfw and imgui.
 
 ![The BiD mixer connected to an iD24](Desktop/screenshot.png)
 
@@ -20,8 +21,8 @@ Unlike the original, BiD talks to the interface over its spare DFU interface rat
 
 * Devices are detected by USB id; the iD24 is the one verified on hardware. The
   others carry a profile decoded from the official app — how many mixer nodes and
-  cues they have, whether they own alternate speakers, an optical output or a
-  loopback — and BiD hides what a model does not have. Until a model is confirmed
+  cues they have, whether they own alternate speakers or an optical output —
+  and BiD hides what a model does not have. Until a model is confirmed
   on hardware it is marked "protocol unverified" and nothing is written to it on
   connect
   * If a new device gets released, please open an [Issue](https://github.com/baakhoff/BiD/issues) with your USB id and input/output counts
@@ -203,7 +204,23 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 
 ### BiD
 
-* Unreleased
+* 0.3.0
+   * The alt speakers get their trim: right-click ALT sets it in dB, a
+     level-match offset riding the volume while ALT holds — the second
+     pair balanced against the mains, the knob live on both sets
+   * The loopback row sits this version out. Its routing writes latch
+     but no capture channel ever carries the signal, and its enable
+     answered to nothing reachable from Linux — the full hunt is in
+     docs/PROTOCOL.md. It returns in 0.4.0 once the official app's
+     traffic shows the write that wakes it
+   * The iD24's ear-mapped layout now annotates the whole family: the
+     iD14 table's single cue codes are the mono sums, its true stereo
+     pairs are predicted two families down (docs/TESTING.md carries the
+     ear test that confirms them), and the iD48, speaking the iD24's
+     formula, inherits every correction as predictions awaiting an owner
+   * A tester's handbook, in English and Russian (docs/TESTING.md):
+     the safety rules, the per-ear checks, the watcher, the beep hunts,
+     and how to report so a finding becomes a fix
    * Cue A on the iD24 is stereo at last. The codes BiD wrote as its
      pair turned out to be the mono sums of cue A and cue B — one ear
      played each — and the true pair, 0x1e/0x1f, had spent years
