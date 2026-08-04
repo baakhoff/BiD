@@ -82,10 +82,19 @@ what that output plays:
                all leave it untouched, and 0x29/0x2a is a second tap of
                the same nature. The monitor-processed feed (0x25/0x26)
                only exists on outputs 0/1, and nothing in 0x00..0x30
-               behaves as a gated alt source, so the official app most
-               likely implements ALT by rerouting in software - a
-               Windows USB capture of its ALT press is the missing
-               measurement. 0x1e/0x1f, the old "alt" label, is cue A
+               behaves as a gated alt source. Feature unit 0x0c's
+               channels 3/4 do not touch these jacks either - the output
+               gains sit inside the monitor path, as the MKII showed,
+               and a raw tap bypasses them all. So there is no volume
+               handle over the alt outputs reachable from here at all.
+               Proper ALT - silent until pressed, mains muting, the alt
+               trim as its level, all of which the monitor section's
+               stored alt trim (0x36 selector 0x17) clearly exists for -
+               must be implemented by the official app through selectors
+               still unknown: a Windows USB capture of the app assigning
+               Alt Spkr, pressing ALT, moving the knob and the trim is
+               the one measurement left. 0x1e/0x1f, the old "alt" label,
+               is cue A
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on
