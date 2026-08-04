@@ -94,7 +94,20 @@ what that output plays:
                still unknown: a Windows USB capture of the app assigning
                Alt Spkr, pressing ALT, moving the knob and the trim is
                the one measurement left. 0x1e/0x1f, the old "alt" label,
-               is cue A
+               is cue A.
+
+               Late corrections from the same night: 0x25/0x26 DOES work
+               on the alt outputs, knob-controlled, while ALT is off -
+               the earlier "silent" reading was a false negative from a
+               quiet beep stacked on a turned-down knob. The ALT toggle
+               (0x36 selector 0x0c) mutes the monitor feed on every
+               output carrying it, alt outs included, rather than
+               steering it. The stored alt trim reads back 0x0000 -
+               silence - and refuses every write shape tried (u16 and
+               byte, channels 0/1/2/16), so if a trim-gated alt feed
+               exists it is inaudible until the official app's write for
+               that trim is captured. The monitor entity also answers on
+               selectors 0x01, 0x08 and 0x15, contents unknown
 
 The cue codes come from listening, not from the decode, and the listening
 took two rounds to understand. Monix's table reads `0x20/0x21` as cue A: on
