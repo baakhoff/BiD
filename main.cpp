@@ -2168,6 +2168,14 @@ int main(int argc, char** argv)
 				ImGui::PopStyleColor();
 			}
 			ImGui::TextDisabled(VERSION_BID);
+			ImGui::SameLine();
+			ImGui::TextDisabled("· Made by @Baakhoff");
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+				ImGui::SetTooltip("baakhoff.com");
+				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+					if (system("xdg-open https://baakhoff.com >/dev/null 2>&1 &")) {}
+			}
 			//ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 			ImGui::End();
 
