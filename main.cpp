@@ -33,6 +33,7 @@
 #include <cctype>
 #include <thread>
 #include <atomic>
+#include <ctime>
 #include "driver.h"
 #include "tray.h"
 
@@ -1159,19 +1160,23 @@ static int watch_monitor()
 	int16_t v_prev[4] = {0};
 	bool b_ok[0x31] = {false}, l_ok[0x31] = {false}, v_ok[4] = {false};
 	bool first = true;
+	// stamped with seconds since start, so one pasted log lines up with
+	// "at ten seconds I turned the encoder" without any bookkeeping
+	time_t t0 = time(NULL);
 	while (!watch_stop) {
+		long el = (long)(time(NULL) - t0);
 		for (int sel = 0; sel <= 0x30 && !watch_stop; sel++) {
 			unsigned char b;
 			if (get_monitor_byte((uint16_t)(sel << 8), &b)) {
 				if (b_ok[sel] && b != b_prev[sel])
-					printf("0x36 selector 0x%02x byte:  0x%02x -> 0x%02x\n", sel, b_prev[sel], b);
+					printf("[%3lds] 0x36 selector 0x%02x byte:  0x%02x -> 0x%02x\n", el, sel, b_prev[sel], b);
 				b_prev[sel] = b;
 				b_ok[sel] = true;
 			}
 			float l;
 			if (get_monitor_level((uint16_t)(sel << 8), &l)) {
 				if (l_ok[sel] && (l > l_prev[sel] + 0.0005f || l < l_prev[sel] - 0.0005f))
-					printf("0x36 selector 0x%02x level: %.4f -> %.4f\n", sel, l_prev[sel], l);
+					printf("[%3lds] 0x36 selector 0x%02x level: %.4f -> %.4f\n", el, sel, l_prev[sel], l);
 				l_prev[sel] = l;
 				l_ok[sel] = true;
 			}
@@ -1181,7 +1186,7 @@ static int watch_monitor()
 			if (libusb_control_transfer(devh, 0xa1, 0x1, (uint16_t)(0x0200 | ch),
 					(uint16_t)(0x0c00 | control_iface), (uint8_t*)&v, 2, 100) == 2) {
 				if (v_ok[ch - 1] && v != v_prev[ch - 1])
-					printf("0x0c volume ch %d: %d -> %d\n", ch, v_prev[ch - 1], v);
+					printf("[%3lds] 0x0c volume ch %d: %d -> %d\n", el, ch, v_prev[ch - 1], v);
 				v_prev[ch - 1] = v;
 				v_ok[ch - 1] = true;
 			}
