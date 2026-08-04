@@ -25,6 +25,14 @@ the safety rules first — each one was learned the hard way.
 - **If audio dies completely mid-test:** power-cycle the interface with
   its own power switch. On DC-powered models a USB replug does not
   reboot the DSP. Then reopen BiD — it pushes your whole desk back.
+- **Unmapped outputs are live until proven otherwise.** On the iD24,
+  the routing unit's "spare" tail turned out to be direct feeds to the
+  physical jacks, discovered by a scream. A hunt must read the current
+  routing back before choosing its probe bus, touch only the outputs
+  under test, and restore each one immediately after its measurement.
+- **Take the headphones off your head during hunts.** Listen from a
+  distance; note what sounds and when, with your ears nowhere near a
+  driver.
 - **Your desk is safe.** Levels, pans, names, routing all live in BiD's
   state file. Whatever a test writes to the device, reopening BiD
   restores your setup.

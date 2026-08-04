@@ -90,6 +90,25 @@ what that output plays:
                one. Useful as fixed-level line feeds, dangerous into an
                amplifier
 
+**Outputs 12..15 are live, and they are the jacks.** The routing unit's
+unmapped tail is not spare: it is a second bank of direct feeds to the
+four analog connectors — writing a source to output 14 played it out of
+analog jack 3, at full path level, straight past the monitor section.
+Boot values are `0x0d..0x10` (playback channels 13..16, which nothing
+plays, hence silent); anything else written there opens a live path
+from the computer or a bus to a physical connector. Treat every
+unmapped output index on every model as connected to something real
+until measured otherwise.
+
+**The loopback is not a passive path.** With a probe signal on cue B
+routed to each of outputs 6..11 in turn, all twelve capture channels
+stayed silent — and the direct bank is jacks, not loopback. So the
+loopback pair the decode promises on outputs 10/11, arriving as
+capture 11+12, does not materialize on its own: like the alt feed
+before its gate was found, it must sit behind an enable the official
+app writes. Third item, same shape, for the Windows capture list —
+alongside the alt trim and the mystery selectors.
+
 The long alt hunt earned some lessons worth keeping. 0x25/0x26 works on
 the alt outputs too, knob and all, while ALT is off - an early "silent"
 reading there was a quiet test beep stacked on a turned-down knob, and
