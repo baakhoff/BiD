@@ -532,6 +532,64 @@ static std::string sanitize_preset(const char* raw)
 	return out;
 }
 
+// One saved desk per device is the one to come back to: the default. It
+// lives beside the presets under a name of its own, so renaming or deleting
+// presets cannot touch it, and it holds everything a preset does - levels,
+// pans, names, routing. Restoring it is a recall like any other.
+static std::string default_path()
+{
+	std::string d = presets_dir();
+	if (d.empty())
+		return d;
+	char pfx[24];
+	snprintf(pfx, sizeof(pfx), "/default-%04x.conf", devices[driver_indicator].usb_id);
+	return d + pfx;
+}
+
+static bool have_default()
+{
+	std::string p = default_path();
+	if (p.empty())
+		return false;
+	FILE *f = fopen(p.c_str(), "r");
+	if (!f)
+		return false;
+	fclose(f);
+	return true;
+}
+
+// A preset becomes the default by being copied over it, byte for byte:
+// nothing is loaded onto the desk on the way there.
+static bool copy_conf(const std::string& src, const std::string& dst)
+{
+	if (src.empty() || dst.empty())
+		return false;
+	FILE *in = fopen(src.c_str(), "rb");
+	if (!in)
+		return false;
+	std::string tmp = dst + ".tmp";
+	FILE *out = fopen(tmp.c_str(), "wb");
+	if (!out) {
+		fclose(in);
+		return false;
+	}
+	char buf[4096];
+	size_t n;
+	bool ok = true;
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
+		if (fwrite(buf, 1, n, out) != n) {
+			ok = false;
+			break;
+		}
+	fclose(in);
+	fclose(out);
+	if (ok)
+		rename(tmp.c_str(), dst.c_str());
+	else
+		remove(tmp.c_str());
+	return ok;
+}
+
 static void list_presets(std::vector<std::string>& out)
 {
 	out.clear();
@@ -1279,6 +1337,23 @@ int main(int argc, char** argv)
 								remove(preset_path(pnames[pi]).c_str());
 						ImGui::EndMenu();
 					}
+					ImGui::Separator();
+					// the one desk to come back to, and the two ways to set it
+					if (ImGui::MenuItem("Restore default", NULL, false, have_default())) {
+						if (load_state_from(default_path()) && connected)
+							push_state_to_device();
+					}
+					hover_tip("Put the default desk back: levels, pans, names and routing");
+					if (ImGui::BeginMenu("Set as default")) {
+						if (ImGui::MenuItem("The desk as it is now"))
+							save_state_to(default_path());
+						if (!pnames.empty())
+							ImGui::Separator();
+						for (size_t pi = 0; pi < pnames.size(); pi++)
+							if (ImGui::MenuItem(pnames[pi].c_str()))
+								copy_conf(preset_path(pnames[pi]), default_path());
+						ImGui::EndMenu();
+					}
 					ImGui::EndMenu();
 				}
 
@@ -1488,6 +1563,10 @@ int main(int argc, char** argv)
 							if (idx < (int)chan_name.size())
 								chan_name[idx] = nv;
 							rename_idx = -1;
+							// straight to disk: the rest of the desk can wait for
+							// the save on the way out, but a name typed once and
+							// lost to a hard exit is worse than a file write
+							save_state();
 						}
 					} else {
 						center_in_column(ImGui::CalcTextSize(disp.c_str()).x);
