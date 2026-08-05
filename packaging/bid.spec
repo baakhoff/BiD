@@ -1,5 +1,5 @@
 Name:           bid
-Version:        0.2.2
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Mixer control panel for Audient iD audio interfaces
 License:        MIT
