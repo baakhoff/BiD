@@ -41,5 +41,15 @@ tar -xzf %{SOURCE1} -C .
 %{_prefix}/lib/udev/rules.d/70-audient.rules
 
 %changelog
+* Tue Aug 04 2026 baakhoff - 0.3.0-1
+- Stereo cues and real alternate-speaker switching on the iD24
+- Per-device default desks, dB faders, in-slot meters
+- The iD14 MKII marked verified; the loopback row benched until 0.4.0
+
+* Mon Aug 03 2026 baakhoff - 0.2.3-1
+- The udev rule moves to 70-audient.rules, where uaccess is honoured
+- Per-model profiles: unverified models are not written to on connect
+- Autostart and connect-on-launch
+
 * Fri Jul 31 2026 baakhoff - 0.2.2-1
 - First packaged release
