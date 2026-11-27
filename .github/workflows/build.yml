@@ -103,12 +103,16 @@ jobs:
           chmod +x linuxdeploy
           DESTDIR="$PWD/AppDir" cmake --install build
           rm -rf AppDir/usr/lib/udev
+          # linuxdeploy leaves libusb to the host by convention; a lean install
+          # may not have it, so it travels with us
+          cp -L /usr/lib/x86_64-linux-gnu/libusb-1.0.so.0 AppDir/usr/lib/
           export LINUXDEPLOY_OUTPUT_VERSION="$version"
           export OUTPUT="BiD-$version-x86_64.AppImage" LDAI_OUTPUT="BiD-$version-x86_64.AppImage"
           ./linuxdeploy --appdir AppDir \
             --desktop-file AppDir/usr/share/applications/bid.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/bid.svg \
             --output appimage
+          test -f AppDir/usr/lib/libusb-1.0.so.0
           ls -la BiD-*.AppImage
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

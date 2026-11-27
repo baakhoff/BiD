@@ -33,10 +33,10 @@ else()
 	# The ImGui GLFW backend includes glfw3native.h, which needs the X11,
 	# Xrandr and Wayland client headers. Say so here, by name, rather than
 	# with a missing-header error halfway through the build.
-	include(CheckIncludeFile)
-	check_include_file(X11/extensions/Xrandr.h BID_HAVE_XRANDR_H)
-	check_include_file(wayland-client.h BID_HAVE_WAYLAND_CLIENT_H)
-	if (NOT BID_HAVE_XRANDR_H OR NOT BID_HAVE_WAYLAND_CLIENT_H)
+	# Asked of pkg-config, not of the compiler: openSUSE keeps the Wayland
+	# headers in /usr/include/wayland, which only pkg-config knows about.
+	pkg_check_modules(BID_NATIVE x11 xrandr wayland-client)
+	if (NOT BID_NATIVE_FOUND)
 		message(FATAL_ERROR
 			"The X11/Xrandr and Wayland client headers are needed to build BiD.\n"
 			"  Debian/Ubuntu: sudo apt install libx11-dev libxrandr-dev libwayland-dev\n"
@@ -56,6 +56,9 @@ add_library(imgui
 )
 target_include_directories(imgui PUBLIC ${imgui_external_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
+if (BID_NATIVE_FOUND)
+	target_include_directories(imgui PRIVATE ${BID_NATIVE_INCLUDE_DIRS})
+endif()
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIRS})
 
