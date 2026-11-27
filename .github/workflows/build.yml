@@ -78,6 +78,8 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
             -DBID_BUNDLED_GLFW=ON -DOpenGL_GL_PREFERENCE=LEGACY
           cmake --build build -j"$(nproc)"
+      - name: The wire test - what each model is sent, against its descriptors
+        run: ctest --test-dir build --output-on-failure
       - name: The binary asks for nothing newer than this base
         run: |
           objdump -p build/BiD | grep NEEDED

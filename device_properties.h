@@ -100,29 +100,33 @@ void setup_devices()
 	iD14.name = "iD14";
 	iD14.usb_id = 0x0002;
 	iD14.mic_inputs = 2;
-	// The iD14 family is a smaller machine than the iD24: fourteen mixer
-	// nodes ending in four DAW returns, no alternate speakers and no optical
-	// output. Digital inputs 9 and 10 are DAW 1+2, shown pinned as the
-	// output pair like on the iD24. Both cues are there, though: the mixer
-	// unit carries six output channels, which is three stereo buses, and
-	// MixiD's table has a source code for each of them.
+	// The first-generation iD14 is not a MKII with an older badge. Its
+	// descriptors, read off real hardware (issue #28), show a smaller
+	// machine: fourteen mixer nodes ending in four DAW returns like the
+	// MKII, but a mixer unit with FOUR output channels - the main mix and a
+	// single cue - and a routing unit with four outputs, the speakers and
+	// the phones. Digital inputs 9 and 10 are DAW 1+2, shown pinned as the
+	// output pair like on the iD24.
 	iD14.digital_inputs = 10;
 	iD14.monitor_pair = 8;
 	iD14.matrix_inputs = 14;
-	iD14.cue_mixes = 2;
+	iD14.cue_mixes = 1;
 	iD14.has_alt = false;
 	iD14.has_optical_out = false;
 	iD14.daw_returns = 4;
-	// from a real iD14 MKII's descriptors: mixer unit 60 with six output
-	// channels like the iD24's, but a routing unit carrying six outputs
-	// rather than sixteen, and no formula for its source codes
-	iD14.mixer_stride = 6;
-	iD14.routing_outputs = 6;
+	// Four cells to a matrix row, 56 in all. mymixer, written on one of
+	// these, agrees: its direct monitoring writes microphone 2 at cells 4
+	// and 5, the second row of a four-wide matrix. The MKII's spacing of
+	// six walked off the end of that matrix here, and the IO errors it
+	// earned read as a device refusing control.
+	iD14.mixer_stride = 4;
+	iD14.routing_outputs = 4;
 	iD14.mixer_known = true;
-	// The table is confirmed on an iD14 MKII (issue #26); this first
-	// generation keeps the cautious flags until one is heard from.
+	// Nobody has the source codes for a four-output routing unit: MixiD's
+	// table is the six-output MKII's. Routing is not written at all until
+	// an owner maps it (docs/TESTING.md).
 	iD14.routing_known = false;
-	iD14.route_scheme = 2;
+	iD14.route_scheme = 0;
 	iD14.outputs = 4;
 	iD14.digital_outputs = 0;
 	devices.push_back(iD14);

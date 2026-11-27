@@ -170,6 +170,7 @@ out to be a badly seated speaker cable.
 | Mixer stops responding after suspend or a replug | BiD | Fixed in 0.2.1: BiD notices the stale device, shows an amber `reconnecting` dot and comes back on its own. On older builds, Disconnect and Connect again |
 | ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
 | Connect hangs forever as a normal user | udev | The rule's `uaccess` tag only works from files numbered below 73. Re-run the installer (it replaces the old `84-` file with `70-audient.rules`), replug the interface, retry |
+| Connect fails with Monix installed | Kernel module | Monix's `audient_id` module binds the spare interface BiD uses. From 0.3.2 BiD borrows it while connected and returns it on disconnect; on older builds run `sudo modprobe -r audient_id` first. Monix and BiD cannot hold the interface at the same moment |
 | Connected, but no control responds (models other than the iD24) | Firmware | Some models refuse control traffic on the spare interface. Force the old exclusive mode with `BID_CONTROL_IFACE=0 BiD` — audio pauses while connected — and please report your model in an issue |
 | One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
 
@@ -214,6 +215,26 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 
 ### BiD
 
+* 0.3.2
+   * The first-generation iD14 gets a profile of its own (#28). Its USB
+     descriptors show a smaller machine than the MKII BiD had modelled it
+     on: a mixer four cells wide, the main mix and one cue, and four
+     routed outputs. BiD wrote six cells to a row, ran off the end of the
+     matrix, counted the IO errors and concluded the device refuses
+     control. It now has four-wide rows, one CUE page, and no routing
+     writes until an owner maps the codes; the headphone level is no longer
+     opened wide on connect on models nobody has measured
+   * BiD connects while Monix's `audient_id` kernel module is loaded. The
+     module binds the spare interface BiD talks through, so Connect failed
+     with a message about udev permissions; BiD now borrows the interface
+     while connected and hands it back on disconnect
+   * A cue the model does not have is never written. The matrix code sent
+     all three fader pages wherever it could, and on a four-wide matrix the
+     missing cue's cells are the next input's main mix
+   * A failed write prints the request it was (`wValue`, `wIndex`), so a
+     pasted log says which write the device turned down
+   * `ctest` runs a wire test: every model's writes checked against the
+     limits its descriptors set, with no interface attached
 * 0.3.1
    * The installer builds on Debian 12, MX 23 and their kin again: it now
      asks for the X11, Xrandr and Wayland client headers the GLFW backend
