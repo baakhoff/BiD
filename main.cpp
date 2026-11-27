@@ -1257,7 +1257,7 @@ static int watch_monitor()
 		}
 		for (int ch = 1; ch <= 4 && !watch_stop; ch++) {
 			int16_t v = 0;
-			if (libusb_control_transfer(devh, 0xa1, 0x1, (uint16_t)(0x0200 | ch),
+			if (usb_xfer(0xa1, 0x1, (uint16_t)(0x0200 | ch),
 					(uint16_t)(0x0c00 | control_iface), (uint8_t*)&v, 2, 100) == 2) {
 				if (v_ok[ch - 1] && v != v_prev[ch - 1])
 					printf("[%3lds] 0x0c volume ch %d: %d -> %d\n", el, ch, v_prev[ch - 1], v);

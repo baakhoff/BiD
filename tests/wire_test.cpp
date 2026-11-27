@@ -243,6 +243,76 @@ static void test_borrowing_the_spare_interface()
   CHECK(fake.reattaches == 1 && fake.foreign_driver_bound);
 }
 
+// With Monix's audient_id module loaded there is a way to interface 0 that
+// leaves the sound card alone: its relay node. A model that would otherwise
+// be opened exclusively goes through it; nothing is claimed or detached, and
+// each write is one message in the module's layout.
+static void test_relay_instead_of_exclusive_mode()
+{
+  char path[] = "/tmp/bid-relay-XXXXXX";
+  int tmp = mkstemp(path);
+  CHECK(tmp >= 0);
+  close(tmp);
+  setenv("BID_RELAY_DEV", path, 1);
+  unsetenv("BID_CONTROL_IFACE");
+
+  const device_properties &d = model(0x0002);
+  fake_reset();
+  fake.foreign_driver_iface = 3; // the module itself, on the DFU interface
+  transfer_errors = 0;
+  use_device_geometry(d);
+  CHECK(driver_init(0x0002));
+  CHECK(relay_fd >= 0 && control_iface == 0);
+  CHECK(fake.claimed == -1 && fake.detaches == 0 && !fake.auto_detach);
+  int16_t level = 0x1234;
+  CHECK(ctl_set(0x1200, 0x3600, &level, 2) == 2);
+  set_channel_send(1, 0, 1.0f, 0.5f);
+  CHECK(transfer_errors == 0);
+  CHECK(fake.writes.empty()); // none of it went by libusb
+  driver_shutdown();
+  CHECK(relay_fd == -1);
+
+  unsigned char got[64] = {0};
+  FILE *f = fopen(path, "rb");
+  size_t n = f ? fread(got, 1, sizeof(got), f) : 0;
+  if (f)
+    fclose(f);
+  // three messages of an eight-byte header and two bytes of data
+  CHECK(n == 30);
+  const unsigned char first[10] = {0x21, 0x01, 0x00, 0x12, 0x00, 0x36, 0x02, 0x00, 0x34, 0x12};
+  CHECK(memcmp(got, first, 10) == 0);
+  // microphone 2 into the main mix: cells 4 and 5 of entity 0x3c, interface 0
+  CHECK(got[10] == 0x21 && got[12] == 0x04 && got[13] == 0x01 && got[14] == 0x00 && got[15] == 0x3c);
+  CHECK(got[22] == 0x05 && got[23] == 0x01 && got[25] == 0x3c);
+
+  // a model that talks over its spare interface has no use for the relay
+  fake_reset();
+  use_device_geometry(model(0x000d));
+  CHECK(driver_init(0x000d));
+  CHECK(relay_fd == -1 && control_iface == 3 && fake.claimed == 3);
+  driver_shutdown();
+
+  // and BID_CONTROL_IFACE=0 still means libusb on interface 0
+  setenv("BID_CONTROL_IFACE", "0", 1);
+  fake_reset();
+  use_device_geometry(d);
+  CHECK(driver_init(0x0002));
+  CHECK(relay_fd == -1 && fake.claimed == 0);
+  driver_shutdown();
+  unsetenv("BID_CONTROL_IFACE");
+
+  // a relay that is not there changes nothing
+  setenv("BID_RELAY_DEV", "/nonexistent/audient_id0", 1);
+  fake_reset();
+  use_device_geometry(d);
+  CHECK(driver_init(0x0002));
+  CHECK(relay_fd == -1 && fake.claimed == 0);
+  driver_shutdown();
+
+  unsetenv("BID_RELAY_DEV");
+  unlink(path);
+}
+
 int main()
 {
   setup_devices();
@@ -252,6 +322,7 @@ int main()
   test_profiles_are_consistent();
   test_refusals_are_counted();
   test_borrowing_the_spare_interface();
+  test_relay_instead_of_exclusive_mode();
   if (failures) {
     printf("%d check(s) failed\n", failures);
     return 1;

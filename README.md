@@ -171,7 +171,7 @@ out to be a badly seated speaker cable.
 | ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
 | Connect hangs forever as a normal user | udev | The rule's `uaccess` tag only works from files numbered below 73. Re-run the installer (it replaces the old `84-` file with `70-audient.rules`), replug the interface, retry |
 | Connect fails with Monix installed | Kernel module | Monix's `audient_id` module binds the spare interface BiD uses. From 0.3.2 BiD borrows it while connected and returns it on disconnect; on older builds run `sudo modprobe -r audient_id` first. Monix and BiD cannot hold the interface at the same moment |
-| Audio stops while BiD is connected to a first-generation iD14 | Firmware | Expected. That model hangs when control is sent to the spare interface, so BiD takes interface 0 and the sound card with it; audio returns on disconnect |
+| Audio stops while BiD is connected to a first-generation iD14 | Firmware | That model hangs when control is sent to the spare interface, so BiD takes interface 0 and the sound card with it; audio returns on disconnect. With [Monix](https://github.com/sKuhLight/monix)'s `audient_id` kernel module loaded BiD goes through its relay instead and audio keeps playing; the terminal says which way was taken |
 | Connected, but no control responds (models other than the iD24) | Firmware | Some models refuse control traffic on the spare interface. Force the old exclusive mode with `BID_CONTROL_IFACE=0 BiD` — audio pauses while connected — and please report your model in an issue |
 | One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
 
@@ -230,6 +230,11 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
      the spare interface like on the iD24, the first write timed out and
      the box hung until replugged - this was the "Device refuses control"
      of #28. `BID_CONTROL_IFACE` is no longer needed there
+   * Where a model has to be opened on interface 0 and Monix's `audient_id`
+     kernel module is loaded, BiD sends its requests through that module's
+     relay (`/dev/audient_idN`) instead, and audio keeps playing. Without
+     the module nothing changes. Not yet confirmed on hardware
+   * A device that cannot be opened at all now says so in the terminal
    * Phase invert is offered only on the inputs a model takes it on: the
      first four on the first-generation iD14, which stalls on the rest.
      Found by fritzbauer on the hardware itself

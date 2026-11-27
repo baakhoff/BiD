@@ -30,6 +30,16 @@ The first-generation iD14 takes the same requests on interface 0, which
 costs the sound card for as long as BiD is connected; its profile says so
 (`control_on_spare`).
 
+There is one way to interface 0 that leaves the sound card alone, and it
+is not BiD's: Monix's `audient_id` kernel module. The rule that a claimed
+interface is off limits binds userspace only, so the module forwards class
+requests from inside the kernel and offers them as `/dev/audient_idN` -
+one `write()` per SET, one ioctl per GET, in a packed message of
+`bRequestType, bRequest, wValue, wIndex, wLength, data[64]`. When BiD would
+otherwise open a model exclusively and exactly one such node exists, it
+talks through the node and claims nothing. `BID_RELAY_DEV` names a node
+outright; `BID_CONTROL_IFACE=0` skips the relay.
+
 One thing can be in the way there: [Monix](https://github.com/sKuhLight/monix)
 ships a kernel module, `audient_id`, that binds the same DFU interface to
 relay control requests from inside the kernel. An interface with a driver on
