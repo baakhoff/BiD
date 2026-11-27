@@ -1,0 +1,209 @@
+name: Build
+
+# Two promises are kept here:
+#  1. install.sh builds BiD on a bare install of each supported distribution,
+#     with nothing but the packages it asks for itself.
+#  2. The .deb and the AppImage are built on an old base with GLFW built in,
+#     then started on other distributions before anyone downloads them.
+# A v* tag also attaches the packages to that tag's release.
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  installer:
+    name: install.sh on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - debian:13
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - fedora:latest
+          - archlinux:latest
+          - opensuse/tumbleweed:latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Refresh the package database
+        run: |
+          if command -v pacman >/dev/null; then pacman -Syu --noconfirm; fi
+          if command -v zypper >/dev/null; then zypper --non-interactive install tar gzip; fi
+      - name: Run the installer against this checkout
+        run: BID_SRC="$PWD" BID_SKIP_UDEV=1 bash install.sh
+      - name: The binary is installed and every library resolves
+        run: |
+          test -x /usr/local/bin/BiD
+          ldd /usr/local/bin/BiD
+          ! ldd /usr/local/bin/BiD | grep -q 'not found'
+
+  packages:
+    name: Build .deb and AppImage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The oldest base still in support sets the floor: a binary built here
+    # runs on glibc 2.35 and anything newer (Ubuntu 22.04, Debian 12, MX 23,
+    # Mint 21 and up).
+    container: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the build dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl file git cmake g++ make pkg-config dpkg-dev \
+            libusb-1.0-0-dev libgl-dev libsystemd-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libwayland-bin libxkbcommon-dev
+      - name: Build with GLFW built in
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBID_BUNDLED_GLFW=ON -DOpenGL_GL_PREFERENCE=LEGACY
+          cmake --build build -j"$(nproc)"
+      - name: The binary asks for nothing newer than this base
+        run: |
+          objdump -p build/BiD | grep NEEDED
+          newest="$(objdump -T build/BiD | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)"
+          echo "newest glibc symbol version: $newest"
+          [ "$(printf '%s\n' GLIBC_2.35 "$newest" | sort -V | tail -1)" = GLIBC_2.35 ]
+          ! objdump -p build/BiD | grep -q 'NEEDED.*libglfw'
+      - name: Debian package
+        run: |
+          cd build && cpack -G DEB
+          dpkg-deb -I bid_*.deb
+          dpkg-deb -c bid_*.deb
+      - name: AppImage
+        env:
+          LINUXDEPLOY_URL: https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
+          LINUXDEPLOY_SHA256: c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          version="$(sed -n 's/^  VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)"
+          test -n "$version"
+          curl -fsSL -o linuxdeploy "$LINUXDEPLOY_URL"
+          echo "$LINUXDEPLOY_SHA256  linuxdeploy" | sha256sum -c -
+          chmod +x linuxdeploy
+          DESTDIR="$PWD/AppDir" cmake --install build
+          rm -rf AppDir/usr/lib/udev
+          # linuxdeploy leaves libusb to the host by convention; a lean install
+          # may not have it, so it travels with us
+          cp -L /usr/lib/x86_64-linux-gnu/libusb-1.0.so.0 AppDir/usr/lib/
+          export LINUXDEPLOY_OUTPUT_VERSION="$version"
+          export OUTPUT="BiD-$version-x86_64.AppImage" LDAI_OUTPUT="BiD-$version-x86_64.AppImage"
+          ./linuxdeploy --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/bid.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/bid.svg \
+            --output appimage
+          test -f AppDir/usr/lib/libusb-1.0.so.0
+          ls -la BiD-*.AppImage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          if-no-files-found: error
+          path: |
+            build/bid_*.deb
+            BiD-*.AppImage
+
+  start-deb:
+    name: .deb starts on ${{ matrix.image }}
+    needs: packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['debian:12', 'debian:13', 'ubuntu:22.04', 'ubuntu:24.04']
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+      - name: Install the package, with only the dependencies it declares
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ./build/bid_*.deb
+          # a display and a software renderer, standing in for a desktop
+          apt-get install -y --no-install-recommends xvfb xauth libgl1-mesa-dri
+      - name: BiD starts and stays up
+        run: |
+          status=0
+          xvfb-run -a timeout 10 BiD || status=$?
+          echo "exit status: $status (124 = still running when stopped)"
+          [ "$status" = 124 ]
+
+  start-appimage:
+    name: AppImage starts on ${{ matrix.image }}
+    needs: packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['debian:12', 'ubuntu:24.04', 'fedora:latest']
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+      - name: A display and a software renderer, standing in for a desktop
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends xvfb xauth libgl1 libgl1-mesa-dri \
+              libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6
+          else
+            dnf install -y xorg-x11-server-Xvfb xorg-x11-xauth mesa-libGL mesa-dri-drivers \
+              libX11 libXrandr libXinerama libXcursor libXi
+          fi
+      - name: BiD starts and stays up
+        run: |
+          chmod +x BiD-*.AppImage
+          status=0
+          # no FUSE in a container: unpack and run
+          xvfb-run -a timeout 10 ./BiD-*.AppImage --appimage-extract-and-run || status=$?
+          echo "exit status: $status (124 = still running when stopped)"
+          [ "$status" = 124 ]
+
+  release:
+    name: Attach the packages to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [installer, start-deb, start-appimage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+      - name: The tag matches the version in CMakeLists.txt
+        run: |
+          version="$(sed -n 's/^  VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, CMakeLists.txt says $version"; exit 1; }
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "BiD ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/build/bid_*.deb dist/BiD-*.AppImage --clobber

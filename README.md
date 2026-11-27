@@ -47,8 +47,12 @@ update. Rather read before you pipe? Download [install.sh](install.sh) and
 run it locally — it is short.
 
 Prefer a package? Every release carries a `.deb` (dependencies and the
-udev rule baked in) and an AppImage that runs anywhere; Arch users find a
-[PKGBUILD](packaging/PKGBUILD) in `packaging/`.
+udev rule baked in) and an AppImage; Arch users find a
+[PKGBUILD](packaging/PKGBUILD) in `packaging/`. Both packages are built on
+Ubuntu 22.04 with GLFW built in, so they need glibc 2.35 or newer: Ubuntu
+22.04, Debian 12, MX 23, Mint 21 and anything younger. That holds from
+0.3.1 on; the 0.3.0 packages and older were built on a newer system and do
+not start on most of those.
 
 ## Compilation
 
@@ -58,6 +62,7 @@ udev rule baked in) and an AppImage that runs anywhere; Arch users find a
 * libglfw3-dev (glfw-devel)
 * libusb-1.0-0-dev (libusb1-devel)
 * OpenGL headers (libgl-dev / mesa-libGL-devel)
+* X11, Xrandr and Wayland client headers (libx11-dev libxrandr-dev libwayland-dev / libX11-devel libXrandr-devel wayland-devel) — the GLFW backend of Dear ImGui includes them, and not every glfw dev package pulls them in
 * libsystemd-dev, or basu on distributions without systemd (optional, enables the system tray icon)
 
 ### Compile
@@ -66,6 +71,11 @@ udev rule baked in) and an AppImage that runs anywhere; Arch users find a
 * cd Release
 * cmake -DCMAKE_BUILD_TYPE=Release ..
 * make
+
+Add `-DBID_BUNDLED_GLFW=ON` to build GLFW 3.4 into the binary instead of
+linking the system library; the release packages are built that way. It
+needs the X11 development headers (libxinerama-dev libxcursor-dev libxi-dev
+on top of the list above), libxkbcommon-dev and wayland-scanner.
 
 ## Usage
 
@@ -204,6 +214,21 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 
 ### BiD
 
+* 0.3.1
+   * The installer builds on Debian 12, MX 23 and their kin again: it now
+     asks for the X11, Xrandr and Wayland client headers the GLFW backend
+     of Dear ImGui includes, which those distributions' glfw package does
+     not bring along. CMake names the missing packages instead of failing
+     halfway through the build
+   * The `.deb` and the AppImage start on older distributions. Both are now
+     built on Ubuntu 22.04 with GLFW 3.4 inside, so they need glibc 2.35
+     and nothing newer; the 0.3.0 packages asked for glibc 2.43 and
+     GLFW 3.4 without saying so, installed, and then did not launch. The
+     AppImage carries libusb with it
+   * Every push builds both packages, starts them on several distributions
+     and runs the installer on bare images of Debian, Ubuntu, Fedora, Arch
+     and openSUSE; a release tag attaches the packages by itself
+   * `BID_SRC=<directory>` makes the installer build a local checkout
 * 0.3.0
    * The alt speakers get their trim: right-click ALT sets it in dB, a
      level-match offset riding the volume while ALT holds — the second
