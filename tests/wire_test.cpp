@@ -42,8 +42,8 @@ static void start(const device_properties &d, int mixer_cells, int routing_outs)
   fake.mixer_cells = mixer_cells;
   fake.routing_outputs = routing_outs;
   transfer_errors = 0;
-  control_iface = 3;
   use_device_geometry(d);
+  control_iface = d.control_on_spare ? 3 : 0;
 }
 
 static bool wrote(uint16_t wValue, uint16_t entity)
@@ -88,7 +88,7 @@ static void test_id14_first_generation()
   std::set<uint16_t> seen;
   for (size_t i = 0; i < fake.writes.size(); i++) {
     CHECK((fake.writes[i].wIndex >> 8) == 0x3c);
-    CHECK((fake.writes[i].wIndex & 0xff) == 3);
+    CHECK((fake.writes[i].wIndex & 0xff) == 0);
     CHECK(seen.insert(fake.writes[i].wValue).second);
   }
   CHECK(seen.size() == 56);
@@ -119,6 +119,44 @@ static void test_id14_first_generation()
   for (int p = 0; p < 6; p++)
     set_route_pair(p, ROUTE_MAIN);
   CHECK(fake.writes.empty());
+
+  // The reporter's hardware took the phase switch on channels 1 to 4 and
+  // stalled on 5 to 12; the app offers it for every strip it draws.
+  start(d, 56, 4);
+  fake.phase_channels = 4;
+  for (int i = 0; i < d.mic_inputs + d.digital_inputs; i++)
+    set_phase(i, false);
+  CHECK(transfer_errors == 0);
+  CHECK(fake.writes.size() == 4);
+  CHECK(wrote(0x0d01, 0x0b) && wrote(0x0d04, 0x0b) && !wrote(0x0d05, 0x0b));
+  set_phase_state(7); // a click on a strip without the switch sends nothing
+  CHECK(fake.writes.size() == 4 && transfer_errors == 0);
+}
+
+// The same hardware hung until replugged when the requests went to its DFU
+// interface, the one BiD prefers elsewhere. This model must be opened on
+// interface 0, with nothing ever addressed anywhere else.
+static void test_id14_first_generation_stays_off_the_spare_interface()
+{
+  const device_properties &d = model(0x0002);
+  CHECK(!d.control_on_spare);
+  unsetenv("BID_CONTROL_IFACE");
+  fake_reset();
+  fake.spare_takes_control = false;
+  fake.mixer_cells = 56;
+  fake.foreign_driver_iface = 3; // Monix loaded, as on the reporter's machine
+  transfer_errors = 0;
+  use_device_geometry(d);
+  CHECK(driver_init(0x0002));
+  CHECK(control_iface == 0 && fake.claimed == 0);
+  CHECK(fake.detaches == 0); // Monix's interface is not touched at all
+  set_speaker_volume(0.5f);
+  push_whole_matrix(d);
+  CHECK(!fake.hung);
+  CHECK(transfer_errors == 0);
+  for (size_t i = 0; i < fake.writes.size(); i++)
+    CHECK((fake.writes[i].wIndex & 0xff) == 0);
+  driver_shutdown();
 }
 
 // The models confirmed on hardware must not move: six cells to a row, cue B
@@ -187,8 +225,9 @@ static void test_borrowing_the_spare_interface()
 {
   unsetenv("BID_CONTROL_IFACE");
 
+  use_device_geometry(model(0x000d)); // a model that talks over it
   fake_reset(); // nothing bound: the ordinary case
-  CHECK(driver_init(0x0002));
+  CHECK(driver_init(0x000d));
   CHECK(control_iface == 3 && fake.claimed == 3);
   CHECK(fake.detaches == 0);
   CHECK(!fake.auto_detach); // nobody to detach, so nothing is asked for
@@ -197,7 +236,7 @@ static void test_borrowing_the_spare_interface()
 
   fake_reset();
   fake.foreign_driver_iface = 3;
-  CHECK(driver_init(0x0002));
+  CHECK(driver_init(0x000d));
   CHECK(control_iface == 3 && fake.claimed == 3);
   CHECK(fake.detaches == 1 && !fake.foreign_driver_bound);
   driver_shutdown();
@@ -208,6 +247,7 @@ int main()
 {
   setup_devices();
   test_id14_first_generation();
+  test_id14_first_generation_stays_off_the_spare_interface();
   test_verified_models_unchanged();
   test_profiles_are_consistent();
   test_refusals_are_counted();

@@ -18,10 +18,17 @@ interface trick below, [Monix](https://github.com/sKuhLight/monix) whose
     wIndex  = (entity << 8) | interface
     data    little endian
 
-`interface` can be **any** of the device's interfaces, not just the
-AudioControl one. BiD sends everything to the spare DFU interface, which no
+On the iD24, `interface` can be **any** of the device's interfaces, not just
+the AudioControl one. BiD sends everything to the spare DFU interface, which no
 kernel driver claims, so `snd-usb-audio` keeps the card and playback continues
 while BiD is connected. See `find_control_interface()` in `driver.h`.
+
+This is not true of every model. A first-generation iD14 timed out on the
+first write sent to its DFU interface and hung until replugged (issue #28);
+an iD14 MKII was reported answering `LIBUSB_ERROR_IO` there (issue #26).
+The first-generation iD14 takes the same requests on interface 0, which
+costs the sound card for as long as BiD is connected; its profile says so
+(`control_on_spare`).
 
 One thing can be in the way there: [Monix](https://github.com/sKuhLight/monix)
 ships a kernel module, `audient_id`, that binds the same DFU interface to
@@ -345,9 +352,8 @@ model, agrees without knowing it: its direct monitoring sends microphone 1
 to cells 0 and 1 and microphone 2 to cells 4 and 5 - the first two rows of
 a four-wide matrix. With the MKII's spacing of six, BiD's connect addressed
 cells up to 83 in a matrix that ends at 55. A write outside a unit's range
-is answered with `LIBUSB_ERROR_IO`, and a connect that collects more than a
-dozen of those gives up with "Device refuses control" - here on a device
-that was turning down the addresses, not the interface.
+is answered with `LIBUSB_ERROR_IO`. That was half of issue #28; the other
+half was the interface, below.
 
 What is **not** known for this model, and therefore not written:
 
@@ -359,8 +365,19 @@ What is **not** known for this model, and therefore not written:
   channels 3 and 4; BiD's verified models use `0x0c`. On this topology
   `0x0c` sits right after the mixer, so its four channels may be the two
   buses rather than the two outputs. BiD leaves both alone on connect.
-- **Whether the spare interface takes control traffic** on this firmware.
-  The one log there is came from interface 0, in exclusive mode.
+
+What its owner then measured (issue #28):
+
+- **Interface 0 works, the spare one must not be used.** Over interface 0
+  the connect went through and the main mix faders moved the sound. Over
+  the DFU interface (3) the first write, the monitor volume, timed out, the
+  matrix writes after it failed and the box needed replugging. `0x21` with
+  request `0x01` is also what a DFU download looks like, which may be why;
+  that is a guess, the hang is not.
+- **Phase invert answers on channels 1 to 4 only.** `0x0d05` to `0x0d0c` on
+  entity `0x0b` stalled with `LIBUSB_ERROR_PIPE`, although the feature unit
+  declares the control on all ten channels.
+- The cue bus is written but cannot be heard yet: nothing is routed to it.
 
 ### The iD14's own codes, which BiD had all along
 

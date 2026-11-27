@@ -8,6 +8,10 @@
 static libusb_device_handle *devh = NULL;
 static bool driver_connected = false;
 static int control_iface = 0;
+// From the model's profile: whether the spare interface may be used at all,
+// and how many inputs take a phase switch (device_properties.h).
+inline bool control_on_spare = true;
+inline int phase_inputs = 16;
 
 // Set when a transfer reports the device gone: the handle went stale over a
 // suspend, or the cable came out. The app watches this and turns it into a
@@ -268,6 +272,8 @@ inline int route_scheme = ROUTE_SCHEME_ID24;
 // Teach the driver one model's shape before anything is written to it.
 inline void use_device_geometry(const device_properties &d)
 {
+  phase_inputs = d.phase_inputs;
+  control_on_spare = d.control_on_spare;
   mixer_stride = d.mixer_stride;
   routing_outputs = d.routing_outputs;
   route_scheme = d.route_scheme;
@@ -461,7 +467,7 @@ inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed
 {
-  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+  if (chan < 0 || chan >= phase_inputs || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
     return;
   phaseToggle[chan] = on;
   ctl_set(0x0d01+chan, 0x0b00, &phaseToggle[chan], 1);
@@ -469,7 +475,7 @@ void set_phase(int chan, bool on) //0 indexed
 
 void set_phase_state(int chan) //0 indexed
 {
-  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+  if (chan < 0 || chan >= phase_inputs || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
     return;
   set_phase(chan, !phaseToggle[chan]);
 }
@@ -498,6 +504,10 @@ int driver_init(uint16_t deviceid)
   // keeps running while BiD is connected. Devices without a spare
   // interface fall back to the old exclusive grab of interface 0.
   control_iface = find_control_interface(libusb_get_device(devh));
+  // Not on a model known to take it badly: a first-generation iD14 hung
+  // until replugged when its DFU interface was sent these (issue #28).
+  if (!control_on_spare)
+    control_iface = 0;
   // The spare-interface trick is verified on the iD24; other models may
   // expose the interface yet refuse control traffic on it (every transfer
   // answers LIBUSB_ERROR_IO). BID_CONTROL_IFACE forces the choice - 0 is

@@ -15,7 +15,7 @@ BiD is a fork of [MixiD](https://github.com/TheOnlyJoey/MixiD) by [@TheOnlyJoey]
 
 Since there is no official support by Audient for the iD interfaces on Linux, this exists as an alternative to enable the functionality not available in the default class compliant USB driver.
 
-Unlike the original, BiD talks to the interface over its spare DFU interface rather than claiming the audio control interface, so the kernel keeps the sound card and playback carries on while the mixer is open. It also stays resident in the system tray, and the interface follows the window when you resize it.
+Unlike the original, BiD talks to the interface over its spare DFU interface rather than claiming the audio control interface, so the kernel keeps the sound card and playback carries on while the mixer is open (the first-generation iD14 is the exception: it only takes control on the audio interface). It also stays resident in the system tray, and the interface follows the window when you resize it.
 
 ## Notes and To Do
 
@@ -171,6 +171,7 @@ out to be a badly seated speaker cable.
 | ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
 | Connect hangs forever as a normal user | udev | The rule's `uaccess` tag only works from files numbered below 73. Re-run the installer (it replaces the old `84-` file with `70-audient.rules`), replug the interface, retry |
 | Connect fails with Monix installed | Kernel module | Monix's `audient_id` module binds the spare interface BiD uses. From 0.3.2 BiD borrows it while connected and returns it on disconnect; on older builds run `sudo modprobe -r audient_id` first. Monix and BiD cannot hold the interface at the same moment |
+| Audio stops while BiD is connected to a first-generation iD14 | Firmware | Expected. That model hangs when control is sent to the spare interface, so BiD takes interface 0 and the sound card with it; audio returns on disconnect |
 | Connected, but no control responds (models other than the iD24) | Firmware | Some models refuse control traffic on the spare interface. Force the old exclusive mode with `BID_CONTROL_IFACE=0 BiD` — audio pauses while connected — and please report your model in an issue |
 | One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
 
@@ -219,11 +220,19 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
    * The first-generation iD14 gets a profile of its own (#28). Its USB
      descriptors show a smaller machine than the MKII BiD had modelled it
      on: a mixer four cells wide, the main mix and one cue, and four
-     routed outputs. BiD wrote six cells to a row, ran off the end of the
-     matrix, counted the IO errors and concluded the device refuses
-     control. It now has four-wide rows, one CUE page, and no routing
+     routed outputs. BiD wrote six cells to a row and ran off the end of
+     the matrix. It now has four-wide rows, one CUE page, and no routing
      writes until an owner maps the codes; the headphone level is no longer
-     opened wide on connect on models nobody has measured
+     opened wide on connect on models nobody has measured. Its owner
+     confirmed the connect and the main mix faders
+   * The first-generation iD14 is opened on interface 0, in exclusive mode:
+     audio from the computer pauses while BiD is connected to it. Sent to
+     the spare interface like on the iD24, the first write timed out and
+     the box hung until replugged - this was the "Device refuses control"
+     of #28. `BID_CONTROL_IFACE` is no longer needed there
+   * Phase invert is offered only on the inputs a model takes it on: the
+     first four on the first-generation iD14, which stalls on the rest.
+     Found by fritzbauer on the hardware itself
    * BiD connects while Monix's `audient_id` kernel module is loaded. The
      module binds the spare interface BiD talks through, so Connect failed
      with a message about udev permissions; BiD now borrows the interface

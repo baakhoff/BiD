@@ -19,6 +19,8 @@ enum {
   LIBUSB_ERROR_NO_DEVICE = -4,
   LIBUSB_ERROR_NOT_FOUND = -5,
   LIBUSB_ERROR_BUSY = -6,
+  LIBUSB_ERROR_TIMEOUT = -7,
+  LIBUSB_ERROR_PIPE = -9,
 };
 enum {
   LIBUSB_CLASS_AUDIO = 0x01,
@@ -57,6 +59,11 @@ struct fake_usb {
   // what the device accepts
   int mixer_cells = 96;      // entity 0x3c, cells 0..n-1
   int routing_outputs = 16;  // entity 0x33, outputs 0..n-1
+  int phase_channels = 16;   // entity 0x0b, phase switch on channels 1..n
+  // whether requests addressed to an interface other than 0 are served;
+  // a first-generation iD14 hangs on them instead
+  bool spare_takes_control = true;
+  bool hung = false;
   // which interface a kernel driver other than the sound one is bound to
   int foreign_driver_iface = -1;
   // what happened
@@ -80,6 +87,8 @@ inline const char *libusb_error_name(int err)
     case LIBUSB_ERROR_IO: return "LIBUSB_ERROR_IO";
     case LIBUSB_ERROR_NO_DEVICE: return "LIBUSB_ERROR_NO_DEVICE";
     case LIBUSB_ERROR_BUSY: return "LIBUSB_ERROR_BUSY";
+    case LIBUSB_ERROR_TIMEOUT: return "LIBUSB_ERROR_TIMEOUT";
+    case LIBUSB_ERROR_PIPE: return "LIBUSB_ERROR_PIPE";
   }
   return "LIBUSB_ERROR_OTHER";
 }
@@ -162,9 +171,15 @@ inline int libusb_control_transfer(libusb_device_handle *, uint8_t bmRequestType
                                    uint16_t wValue, uint16_t wIndex, unsigned char *data,
                                    uint16_t wLength, unsigned int)
 {
+  if ((wIndex & 0xff) != 0 && !fake.spare_takes_control)
+    fake.hung = true;
+  if (fake.hung)
+    return LIBUSB_ERROR_TIMEOUT;
   if (bmRequestType & 0x80)
     return LIBUSB_ERROR_IO; // reads are not modelled
   int entity = wIndex >> 8, sel = wValue >> 8, chan = wValue & 0xff;
+  if (entity == 0x0b && sel == 0x0d && (chan < 1 || chan > fake.phase_channels))
+    return LIBUSB_ERROR_PIPE;
   if (entity == 0x3c) {
     // the matrix is addressed flat, cell 0 at wValue 0x0100
     int cell = wValue - 0x0100;

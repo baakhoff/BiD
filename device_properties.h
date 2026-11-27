@@ -38,6 +38,14 @@ struct device_properties {
 	bool has_optical_out = true;
 	bool has_loopback = false;     // only the iD24 and iD48 define one
 	int daw_returns = 6;           // matrix rows fed by the computer
+	// Inputs whose phase-invert switch the firmware accepts, counted from the
+	// first microphone. A descriptor can promise more than the box takes.
+	int phase_inputs = 16;
+	// Whether control requests may go to the spare DFU interface, which is
+	// what keeps audio playing while BiD is connected. False where a device
+	// is known to take them badly there; BiD then claims interface 0 and
+	// the sound card pauses for as long as it is connected.
+	bool control_on_spare = true;
 	// Cells one matrix row spans: the mixer unit's output channel count in
 	// the USB descriptors. Six on both the iD24 and the iD14 MKII, whose
 	// descriptors were read off real hardware - it does NOT follow the cue
@@ -114,6 +122,16 @@ void setup_devices()
 	iD14.has_alt = false;
 	iD14.has_optical_out = false;
 	iD14.daw_returns = 4;
+	// Measured on real hardware (issue #28). Addressed to the DFU interface,
+	// the very first write timed out and the box hung until replugged.
+	// A likely reason: this firmware routes by interface number, and the
+	// request BiD sets a level with carries the same request number as a
+	// DFU download. Whatever the reason, interface 0 only.
+	iD14.control_on_spare = false;
+	// Over interface 0 the phase switch answered on channels 1 to 4 and
+	// stalled on 5 to 12, though the feature unit declares it on all ten
+	// of its channels.
+	iD14.phase_inputs = 4;
 	// Four cells to a matrix row, 56 in all. mymixer, written on one of
 	// these, agrees: its direct monitoring writes microphone 2 at cells 4
 	// and 5, the second row of a four-wide matrix. The MKII's spacing of

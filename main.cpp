@@ -1929,9 +1929,12 @@ int main(int argc, char** argv)
 						hover_tip("Solo: mutes everything that is not soloed");
 						ImGui::SameLine(); ImGui::SetCursorPosX(x0 + (pill_w + ps) * 2.0f);
 						ImGui::PushFont(audiofont, 14);
-						if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
+						// only where the firmware takes the switch: a first-generation
+						// iD14 stalls on it past its fourth input (issue #28)
+						bool has_phase = (int)idx < phase_inputs;
+						if (has_phase && toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
 						ImGui::PopFont();
-						hover_tip("Phase invert");
+						if (has_phase) hover_tip("Phase invert");
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					center_in_column(fader_w);
