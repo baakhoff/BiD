@@ -1,5 +1,5 @@
 Name:           bid
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Mixer control panel for Audient iD audio interfaces
 License:        MIT
@@ -44,6 +44,10 @@ tar -xzf %{SOURCE1} -C .
 %{_prefix}/lib/udev/rules.d/70-audient.rules
 
 %changelog
+* Fri Nov 27 2026 baakhoff - 0.3.1-1
+- Build against the X11, Xrandr and Wayland client headers by name
+- Release .deb and AppImage built on an older base with GLFW inside
+
 * Tue Aug 04 2026 baakhoff - 0.3.0-1
 - Stereo cues and real alternate-speaker switching on the iD24
 - Per-device default desks, dB faders, in-slot meters
