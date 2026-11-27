@@ -14,6 +14,38 @@ FetchContent_Declare(imgui_external
 )
 FetchContent_MakeAvailable(imgui_external)
 
+# GLFW: the system one by default. Release packages set BID_BUNDLED_GLFW so
+# one binary behaves the same on every distribution, whichever GLFW (3.3, 3.4,
+# X11-only or not) that distribution happens to ship.
+option(BID_BUNDLED_GLFW "Build GLFW 3.4 into the binary instead of linking the system library" OFF)
+if (BID_BUNDLED_GLFW)
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+	set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+	set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+	set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+	FetchContent_Declare(glfw_external
+		URL https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz
+		URL_HASH SHA256=c038d34200234d071fae9345bc455e4a8f2f544ab60150765d7704e08f3dac01
+	)
+	FetchContent_MakeAvailable(glfw_external)
+else()
+	# The ImGui GLFW backend includes glfw3native.h, which needs the X11,
+	# Xrandr and Wayland client headers. Say so here, by name, rather than
+	# with a missing-header error halfway through the build.
+	include(CheckIncludeFile)
+	check_include_file(X11/extensions/Xrandr.h BID_HAVE_XRANDR_H)
+	check_include_file(wayland-client.h BID_HAVE_WAYLAND_CLIENT_H)
+	if (NOT BID_HAVE_XRANDR_H OR NOT BID_HAVE_WAYLAND_CLIENT_H)
+		message(FATAL_ERROR
+			"The X11/Xrandr and Wayland client headers are needed to build BiD.\n"
+			"  Debian/Ubuntu: sudo apt install libx11-dev libxrandr-dev libwayland-dev\n"
+			"  Fedora:        sudo dnf install libX11-devel libXrandr-devel wayland-devel\n"
+			"  Arch:          sudo pacman -S libx11 libxrandr wayland\n"
+			"  openSUSE:      sudo zypper install libX11-devel libXrandr-devel wayland-devel")
+	endif()
+endif()
+
 add_library(imgui
 	${imgui_external_SOURCE_DIR}/imgui.cpp
 	${imgui_external_SOURCE_DIR}/imgui_draw.cpp
@@ -23,6 +55,7 @@ add_library(imgui
 	${imgui_external_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui PUBLIC ${imgui_external_SOURCE_DIR})
+target_link_libraries(imgui PUBLIC glfw)
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIRS})
 
@@ -96,6 +129,12 @@ set(CPACK_PACKAGE_CONTACT "baakhoff <https://github.com/baakhoff/BiD>")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/baakhoff/BiD")
 set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+if (BID_BUNDLED_GLFW)
+	# the built-in GLFW opens these at run time, where dpkg-shlibdeps cannot
+	# see them: X11 is required, Wayland is used when the session offers it
+	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgl1, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxi6")
+	set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libegl1, libwayland-client0, libwayland-cursor0, libwayland-egl1, libxkbcommon0")
+endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_LIST_DIR}/packaging/deb/postinst")
 set(CPACK_STRIP_FILES TRUE)

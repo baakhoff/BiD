@@ -14,6 +14,9 @@ BuildRequires:  pkgconfig(glfw3)
 BuildRequires:  pkgconfig(libusb-1.0)
 BuildRequires:  pkgconfig(libsystemd)
 BuildRequires:  pkgconfig(gl)
+BuildRequires:  pkgconfig(x11)
+BuildRequires:  pkgconfig(xrandr)
+BuildRequires:  pkgconfig(wayland-client)
 
 %description
 Unofficial Linux control panel for the Audient iD series USB audio

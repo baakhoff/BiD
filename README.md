@@ -47,8 +47,12 @@ update. Rather read before you pipe? Download [install.sh](install.sh) and
 run it locally — it is short.
 
 Prefer a package? Every release carries a `.deb` (dependencies and the
-udev rule baked in) and an AppImage that runs anywhere; Arch users find a
-[PKGBUILD](packaging/PKGBUILD) in `packaging/`.
+udev rule baked in) and an AppImage; Arch users find a
+[PKGBUILD](packaging/PKGBUILD) in `packaging/`. Both packages are built on
+Ubuntu 22.04 with GLFW built in, so they need glibc 2.35 or newer: Ubuntu
+22.04, Debian 12, MX 23, Mint 21 and anything younger. The 0.3.0 packages
+and older were built on a newer system and do not start on most of those;
+on such a release, use the installer above.
 
 ## Compilation
 
@@ -58,6 +62,7 @@ udev rule baked in) and an AppImage that runs anywhere; Arch users find a
 * libglfw3-dev (glfw-devel)
 * libusb-1.0-0-dev (libusb1-devel)
 * OpenGL headers (libgl-dev / mesa-libGL-devel)
+* X11, Xrandr and Wayland client headers (libx11-dev libxrandr-dev libwayland-dev / libX11-devel libXrandr-devel wayland-devel) — the GLFW backend of Dear ImGui includes them, and not every glfw dev package pulls them in
 * libsystemd-dev, or basu on distributions without systemd (optional, enables the system tray icon)
 
 ### Compile

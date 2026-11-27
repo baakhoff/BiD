@@ -8,6 +8,7 @@
 # newest release. Knobs:
 #   BID_PREFIX=/usr/local   install prefix
 #   BID_REF=<tag|branch>    build this ref instead of the newest release tag
+#   BID_SRC=<directory>     build this checkout instead of fetching one
 #   BID_SKIP_UDEV=1         do not touch /etc/udev
 set -euo pipefail
 
@@ -31,7 +32,10 @@ have_tools() {
 		&& { command -v c++ >/dev/null || command -v g++ >/dev/null; }
 }
 have_libs() {
-	pkg-config --exists glfw3 libusb-1.0 gl 2>/dev/null
+	# x11, xrandr and wayland-client are not optional extras: the ImGui GLFW
+	# backend includes glfw3native.h, which pulls their headers in, and not
+	# every distribution makes its glfw dev package depend on them
+	pkg-config --exists glfw3 libusb-1.0 gl x11 xrandr wayland-client 2>/dev/null
 }
 
 if have_tools && have_libs; then
@@ -41,44 +45,56 @@ else
 		say "installing dependencies with apt"
 		as_root apt-get update -qq
 		as_root apt-get install -y git cmake g++ make pkg-config \
-			libglfw3-dev libusb-1.0-0-dev libgl-dev libsystemd-dev
+			libglfw3-dev libusb-1.0-0-dev libgl-dev libsystemd-dev \
+			libx11-dev libxrandr-dev libwayland-dev
 	elif command -v dnf >/dev/null; then
 		say "installing dependencies with dnf"
 		as_root dnf install -y git cmake gcc-c++ make pkgconf-pkg-config \
-			glfw-devel libusb1-devel mesa-libGL-devel systemd-devel
+			glfw-devel libusb1-devel mesa-libGL-devel systemd-devel \
+			libX11-devel libXrandr-devel wayland-devel
 	elif command -v pacman >/dev/null; then
 		say "installing dependencies with pacman"
 		as_root pacman -S --needed --noconfirm git cmake gcc make pkgconf \
-			glfw libusb mesa
+			glfw libusb mesa libx11 libxrandr wayland
 	elif command -v zypper >/dev/null; then
 		say "installing dependencies with zypper"
 		as_root zypper --non-interactive install git cmake gcc-c++ make pkg-config \
-			libusb-1_0-devel Mesa-libGL-devel systemd-devel
+			libusb-1_0-devel Mesa-libGL-devel systemd-devel \
+			libX11-devel libXrandr-devel wayland-devel
 		# the glfw dev package answers to different names across releases
 		as_root zypper --non-interactive install glfw-devel \
 			|| as_root zypper --non-interactive install libglfw-devel \
 			|| fail "could not find a glfw development package"
 	else
 		have_tools && have_libs || fail \
-			"no known package manager; install git, cmake, a C++ compiler, make, pkg-config, glfw3, libusb-1.0 and GL headers, then re-run"
+			"no known package manager; install git, cmake, a C++ compiler, make, pkg-config, glfw3, libusb-1.0, GL, X11, Xrandr and Wayland client headers, then re-run"
 	fi
 	have_tools || fail "the build tools are still missing after the install"
+	have_libs || fail "some development libraries are still missing after the install (need: glfw3 libusb-1.0 gl x11 xrandr wayland-client)"
 fi
 
 # ---------- source ----------
-REF="${BID_REF:-}"
-if [ -z "$REF" ]; then
-	REF="$(git ls-remote --tags --refs "$REPO" 'v*' 2>/dev/null | awk -F/ '{print $NF}' | sort -V | tail -1)"
-	[ -n "$REF" ] || REF=master
-fi
 WORK="$(mktemp -d /tmp/bid-install.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
-say "fetching BiD $REF"
-git clone -q --depth 1 -b "$REF" "$REPO" "$WORK/src"
+if [ -n "${BID_SRC:-}" ]; then
+	[ -f "$BID_SRC/CMakeLists.txt" ] || fail "BID_SRC=$BID_SRC is not a BiD checkout"
+	SRC="$(cd "$BID_SRC" && pwd)"
+	REF="from $SRC"
+	say "building the checkout at $SRC"
+else
+	REF="${BID_REF:-}"
+	if [ -z "$REF" ]; then
+		REF="$(git ls-remote --tags --refs "$REPO" 'v*' 2>/dev/null | awk -F/ '{print $NF}' | sort -V | tail -1)"
+		[ -n "$REF" ] || REF=master
+	fi
+	SRC="$WORK/src"
+	say "fetching BiD $REF"
+	git clone -q --depth 1 -b "$REF" "$REPO" "$SRC"
+fi
 
 # ---------- build ----------
 say "building"
-cmake -S "$WORK/src" -B "$WORK/build" -DCMAKE_BUILD_TYPE=Release \
+cmake -S "$SRC" -B "$WORK/build" -DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_INSTALL_PREFIX="$PREFIX" > "$WORK/cmake.log" 2>&1 \
 	|| { tail -20 "$WORK/cmake.log" >&2; fail "configure failed (log above)"; }
 make -C "$WORK/build" -j"$(nproc)" > "$WORK/make.log" 2>&1 \
