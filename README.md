@@ -15,7 +15,7 @@ BiD is a fork of [MixiD](https://github.com/TheOnlyJoey/MixiD) by [@TheOnlyJoey]
 
 Since there is no official support by Audient for the iD interfaces on Linux, this exists as an alternative to enable the functionality not available in the default class compliant USB driver.
 
-Unlike the original, BiD talks to the interface over its spare DFU interface rather than claiming the audio control interface, so the kernel keeps the sound card and playback carries on while the mixer is open. It also stays resident in the system tray, and the interface follows the window when you resize it.
+Unlike the original, BiD talks to the interface over its spare DFU interface rather than claiming the audio control interface, so the kernel keeps the sound card and playback carries on while the mixer is open (the first-generation iD14 is the exception: it only takes control on the audio interface). It also stays resident in the system tray, and the interface follows the window when you resize it.
 
 ## Notes and To Do
 
@@ -132,8 +132,14 @@ By default the USB device node is root-only, so BiD needs a udev rule to run
 without root. The installer writes it for you; by hand it is:
 
 ```
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="audio", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/70-audient.rules
+sudo tee /etc/udev/rules.d/70-audient.rules <<'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="2708", MODE="0660", GROUP="audio", TAG+="uaccess"
+KERNEL=="audient_id[0-9]*", SUBSYSTEM=="misc", MODE="0660", TAG+="uaccess"
+EOF
 ```
+
+The second line covers the `/dev/audient_idN` relay node of Monix's
+`audient_id` module, which BiD uses when it is loaded.
 
 The number matters: `uaccess` grants the logged-in user access through the
 seat ACL, and udev applies those ACLs at rule 73 — a later file (like the
@@ -170,6 +176,8 @@ out to be a badly seated speaker cable.
 | Mixer stops responding after suspend or a replug | BiD | Fixed in 0.2.1: BiD notices the stale device, shows an amber `reconnecting` dot and comes back on its own. On older builds, Disconnect and Connect again |
 | ALSA mixer sliders look wrong or do nothing | Kernel | Most of the device is write-only and its ALSA controls are misleading by design; see [docs/PROTOCOL.md](docs/PROTOCOL.md). Use BiD for the mixer, ALSA/PipeWire for the streams |
 | Connect hangs forever as a normal user | udev | The rule's `uaccess` tag only works from files numbered below 73. Re-run the installer (it replaces the old `84-` file with `70-audient.rules`), replug the interface, retry |
+| Connect fails with Monix installed | Kernel module | Monix's `audient_id` module binds the spare interface BiD uses. From 0.3.2 BiD borrows it while connected and returns it on disconnect; on older builds run `sudo modprobe -r audient_id` first. Monix and BiD cannot hold the interface at the same moment |
+| Audio stops while BiD is connected to a first-generation iD14 | Firmware | That model hangs when control is sent to the spare interface, so BiD takes interface 0 and the sound card with it; audio returns on disconnect. With [Monix](https://github.com/sKuhLight/monix)'s `audient_id` kernel module loaded BiD goes through its relay instead and audio keeps playing; the terminal says which way was taken. If it says the relay cannot be opened (Permission denied), re-run the installer: its udev rule opens the relay to the logged-in user, and Monix's own rule only to the `audio` group |
 | Connected, but no control responds (models other than the iD24) | Firmware | Some models refuse control traffic on the spare interface. Force the old exclusive mode with `BID_CONTROL_IFACE=0 BiD` — audio pauses while connected — and please report your model in an issue |
 | One side quiet everywhere, all software checked | Cables | Reseat or swap the speaker cables first. It happened here |
 
@@ -214,6 +222,44 @@ jumping after a replug, and leaves WirePlumber far less to juggle.
 
 ### BiD
 
+* 0.3.2
+   * The first-generation iD14 gets a profile of its own (#28). Its USB
+     descriptors show a smaller machine than the MKII BiD had modelled it
+     on: a mixer four cells wide, the main mix and one cue, and four
+     routed outputs. BiD wrote six cells to a row and ran off the end of
+     the matrix. It now has four-wide rows, one CUE page, and no routing
+     writes until an owner maps the codes; the headphone level is no longer
+     opened wide on connect on models nobody has measured. Its owner
+     confirmed the connect and the main mix faders
+   * The first-generation iD14 is opened on interface 0, in exclusive mode:
+     audio from the computer pauses while BiD is connected to it. Sent to
+     the spare interface like on the iD24, the first write timed out and
+     the box hung until replugged - this was the "Device refuses control"
+     of #28. `BID_CONTROL_IFACE` is no longer needed there
+   * Where a model has to be opened on interface 0 and Monix's `audient_id`
+     kernel module is loaded, BiD sends its requests through that module's
+     relay (`/dev/audient_idN`) instead, and audio keeps playing. Without
+     the module nothing changes. fritzbauer confirmed it on the
+     first-generation iD14: audio keeps playing, and the monitor volume
+     and the main mix faders work through the relay
+   * The udev rule also opens Monix's relay node to the logged-in user.
+     Monix's own rule opens it only to the `audio` group, so without this
+     the relay worked only under sudo
+   * A device that cannot be opened at all now says so in the terminal
+   * Phase invert is offered only on the inputs a model takes it on: the
+     first four on the first-generation iD14, which stalls on the rest.
+     Found by fritzbauer on the hardware itself
+   * BiD connects while Monix's `audient_id` kernel module is loaded. The
+     module binds the spare interface BiD talks through, so Connect failed
+     with a message about udev permissions; BiD now borrows the interface
+     while connected and hands it back on disconnect
+   * A cue the model does not have is never written. The matrix code sent
+     all three fader pages wherever it could, and on a four-wide matrix the
+     missing cue's cells are the next input's main mix
+   * A failed write prints the request it was (`wValue`, `wIndex`), so a
+     pasted log says which write the device turned down
+   * `ctest` runs a wire test: every model's writes checked against the
+     limits its descriptors set, with no interface attached
 * 0.3.1
    * The installer builds on Debian 12, MX 23 and their kin again: it now
      asks for the X11, Xrandr and Wayland client headers the GLFW backend

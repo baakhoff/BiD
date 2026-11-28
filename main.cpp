@@ -207,9 +207,7 @@ static int active_buses()
 // Teach the driver this model's matrix spacing before anything is written.
 static void apply_device_profile()
 {
-	mixer_stride = devices[driver_indicator].mixer_stride;
-	routing_outputs = devices[driver_indicator].routing_outputs;
-	route_scheme = devices[driver_indicator].route_scheme;
+	use_device_geometry(devices[driver_indicator]);
 	if (current_mix >= active_buses())
 		current_mix = 0;
 }
@@ -1078,7 +1076,9 @@ static bool push_state_to_device()
 		return true;
 	}
 	int e0 = transfer_errors;
-	for (int m = 0; m < MIXER_BUSES; m++)
+	// Only the buses this model has: the state file always carries three,
+	// and a cue the matrix has no column for must not be sent anywhere.
+	for (int m = 0; m < active_buses(); m++)
 		for (size_t i = 0; i < bar_value[m].size(); i++) {
 			send_channel(i, m);
 			if (transfer_errors - e0 > 12)
@@ -1104,7 +1104,10 @@ static bool push_state_to_device()
 		float hp;
 		if (get_hp_volume(&hp))
 			levels[1] = hp;
-	} else
+	} else if (pdev.protocol_verified)
+		// Only where the address is proven. On a model nobody has measured,
+		// "wide open" written to the wrong node is a level jump in someone's
+		// headphones; unwritten, the box simply stays where it was.
 		set_hp_volume(1.0f);
 	// Routing only where the source codes are known. The iD14 family looks
 	// them up in a table nobody has confirmed; writing the iD24's codes
@@ -1254,7 +1257,7 @@ static int watch_monitor()
 		}
 		for (int ch = 1; ch <= 4 && !watch_stop; ch++) {
 			int16_t v = 0;
-			if (libusb_control_transfer(devh, 0xa1, 0x1, (uint16_t)(0x0200 | ch),
+			if (usb_xfer(0xa1, 0x1, (uint16_t)(0x0200 | ch),
 					(uint16_t)(0x0c00 | control_iface), (uint8_t*)&v, 2, 100) == 2) {
 				if (v_ok[ch - 1] && v != v_prev[ch - 1])
 					printf("[%3lds] 0x0c volume ch %d: %d -> %d\n", el, ch, v_prev[ch - 1], v);
@@ -1926,9 +1929,12 @@ int main(int argc, char** argv)
 						hover_tip("Solo: mutes everything that is not soloed");
 						ImGui::SameLine(); ImGui::SetCursorPosX(x0 + (pill_w + ps) * 2.0f);
 						ImGui::PushFont(audiofont, 14);
-						if (toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
+						// only where the firmware takes the switch: a first-generation
+						// iD14 stalls on it past its fourth input (issue #28)
+						bool has_phase = (int)idx < phase_inputs;
+						if (has_phase && toggleButton("###Phase"+wid, ImVec2(pill_w, pill_h), phase_value[idx])) {if (connected) set_phase_state(idx);};
 						ImGui::PopFont();
-						hover_tip("Phase invert");
+						if (has_phase) hover_tip("Phase invert");
 					}
 					ImGui::Dummy(ImVec2(chan_w, 2.0f * main_scale));
 					center_in_column(fader_w);
@@ -2269,7 +2275,9 @@ int main(int argc, char** argv)
 				ImGui::PopStyleColor();
 				ImGui::PopFont();
 				hover_tip(wdev.mixer_known
-					? "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not confirmed,\nso the routing panel writes only when clicked, and nothing is\npushed on connect. Reports welcome in the tracker."
+					? (wdev.route_scheme == ROUTE_SCHEME_NONE
+						? "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not known,\nso BiD writes no routing at all. Reports welcome in the tracker."
+						: "The mixer and monitor section come from this model's own USB\ndescriptors and should work. Its routing codes are not confirmed,\nso the routing panel writes only when clicked, and nothing is\npushed on connect. Reports welcome in the tracker.")
 					: "This model's protocol has not been confirmed on hardware.\nBiD writes nothing on connect, and a control you move may\nland somewhere unintended. Reports welcome in the tracker.");
 			}
 			const bool call_to_action = !connected;

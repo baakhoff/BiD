@@ -18,10 +18,34 @@ interface trick below, [Monix](https://github.com/sKuhLight/monix) whose
     wIndex  = (entity << 8) | interface
     data    little endian
 
-`interface` can be **any** of the device's interfaces, not just the
-AudioControl one. BiD sends everything to the spare DFU interface, which no
+On the iD24, `interface` can be **any** of the device's interfaces, not just
+the AudioControl one. BiD sends everything to the spare DFU interface, which no
 kernel driver claims, so `snd-usb-audio` keeps the card and playback continues
 while BiD is connected. See `find_control_interface()` in `driver.h`.
+
+This is not true of every model. A first-generation iD14 timed out on the
+first write sent to its DFU interface and hung until replugged (issue #28);
+an iD14 MKII was reported answering `LIBUSB_ERROR_IO` there (issue #26).
+The first-generation iD14 takes the same requests on interface 0, which
+costs the sound card for as long as BiD is connected; its profile says so
+(`control_on_spare`).
+
+There is one way to interface 0 that leaves the sound card alone, and it
+is not BiD's: Monix's `audient_id` kernel module. The rule that a claimed
+interface is off limits binds userspace only, so the module forwards class
+requests from inside the kernel and offers them as `/dev/audient_idN` -
+one `write()` per SET, one ioctl per GET, in a packed message of
+`bRequestType, bRequest, wValue, wIndex, wLength, data[64]`. When BiD would
+otherwise open a model exclusively and exactly one such node exists, it
+talks through the node and claims nothing. `BID_RELAY_DEV` names a node
+outright; `BID_CONTROL_IFACE=0` skips the relay.
+
+One thing can be in the way there: [Monix](https://github.com/sKuhLight/monix)
+ships a kernel module, `audient_id`, that binds the same DFU interface to
+relay control requests from inside the kernel. An interface with a driver on
+it cannot be claimed from userspace, so BiD detaches that driver for as long
+as it is connected and libusb re-attaches it on release. The audio
+interfaces are not involved either way.
 
 ## Entities
 
@@ -38,9 +62,12 @@ while BiD is connected. See `find_control_interface()` in `driver.h`.
 
 ## The mixer matrix
 
-96 cells: 16 inputs by 6 sends, addressed flat.
+On the iD24, 96 cells: 16 inputs by 6 sends, addressed flat.
 
     cell = input * 6 + send
+
+The row width is the mixer unit's output channel count and differs by
+model - six here and on the iD14 MKII, four on the first-generation iD14.
 
 The sixteen input rows on the iD24 are the two mics, the eight digital
 inputs, then DAW returns 1..6. The hardware boots with some cells open —
@@ -230,16 +257,18 @@ and carried in `device_properties.h`:
 | Model | Mixer nodes | DAW returns | Cues | Alt spkr | Optical out | Loopback |
 |-------|-------------|-------------|------|----------|-------------|----------|
 | iD4   | none        | -           | -    | no       | no          | no  |
-| iD14  | 14          | 4           | 2 *  | no       | no          | no  |
+| iD14  | 14          | 4           | 1    | no       | no          | no  |
+| iD14 MKII | 14      | 4           | 2 *  | no       | no          | no  |
 | iD22  | 16          | 6           | 2    | yes      | yes         | no  |
 | iD24  | 16          | 6           | 2    | yes      | yes         | yes (outs 10/11) |
 | iD44  | 30          | 10          | 4    | yes      | yes         | no  |
 | iD48  | 32          | 8           | ?    | yes      | yes         | yes (out 0x16) |
 
-\* Monix's decode gives the iD14 a single cue. Three things say otherwise and
-BiD offers two: its mixer unit carries six output channels, which is three
-stereo buses; MixiD's routing table, written on an iD14, has a source code
-for cue A *and* cue B; and the official app on an iD14 MKII prints both.
+\* Monix's decode gives the iD14 a single cue, and for the first generation
+that is exactly right - see its descriptors below. The MKII is a different
+machine with the same name: its mixer unit carries six output channels,
+which is three stereo buses; MixiD's routing table has a source code for
+cue A *and* cue B; and the official app on an iD14 MKII prints both.
 
 One consequence BiD has to respect. **The routing scheme differs**: the iD24 and
 iD48 compute a source code by formula, while the iD14, iD22 and iD44 look it
@@ -306,6 +335,60 @@ audible difference on a cue-fed phones output, which the same design
 explains; whether it bites when the phones carry Main Mix is still
 untested there.
 
+### What a first-generation iD14's descriptors say
+
+Read off real hardware (issue #28, `lsusb -v -d 2708:0002`, firmware 1.09).
+BiD had modelled this box on the MKII; it is a smaller one.
+
+| | iD14 (first generation) | iD14 MKII |
+|---|---|---|
+| Mixer unit | 60 = `0x3c`, **4 output channels** | 60 = `0x3c`, 6 output channels |
+| Mixer inputs | unit 50, 14 channels: 10 inputs + 4 DAW | 14 |
+| Matrix | 7 bytes of `bmMixerControls` = **56 cells**, 14 x 4 | 14 x 6 |
+| Routing unit | 51 = `0x33`, **4 outputs** | 51 = `0x33`, 6 outputs |
+| Monitor unit | 54 = `0x36` | 54 = `0x36` |
+| Output volumes | 12 = `0x0c`, four channels, fed by the mixer | 12 = `0x0c`, four channels |
+| Output unit | 10 = `0x0a`, four channels, fed by the routing unit, no controls declared | not compared |
+| Input gain + phase | 11 = `0x0b`, ten channels | 11 = `0x0b`, ten channels |
+| Interfaces | 0 control, 1 and 2 streaming, **3 DFU**, 4 HID | HID on 3 |
+
+Four mixer output channels are two stereo buses: the main mix and **one**
+cue. So a matrix row is four cells wide here,
+
+    cell = input * 4 + send        0,1 = Main L,R      2,3 = Cue L,R
+
+and [mymixer](https://github.com/r00tman/mymixer), which was written on this
+model, agrees without knowing it: its direct monitoring sends microphone 1
+to cells 0 and 1 and microphone 2 to cells 4 and 5 - the first two rows of
+a four-wide matrix. With the MKII's spacing of six, BiD's connect addressed
+cells up to 83 in a matrix that ends at 55. A write outside a unit's range
+is answered with `LIBUSB_ERROR_IO`. That was half of issue #28; the other
+half was the interface, below.
+
+What is **not** known for this model, and therefore not written:
+
+- **Routing codes.** MixiD's table is for the MKII's six outputs. A
+  four-output unit - speakers on 0 and 1, phones presumably on 2 and 3 -
+  has its own source numbering, and nobody has measured it. BiD's routing
+  panel says so and writes nothing.
+- **Where the headphone level lives.** mymixer writes it to entity `0x0a`,
+  channels 3 and 4; BiD's verified models use `0x0c`. On this topology
+  `0x0c` sits right after the mixer, so its four channels may be the two
+  buses rather than the two outputs. BiD leaves both alone on connect.
+
+What its owner then measured (issue #28):
+
+- **Interface 0 works, the spare one must not be used.** Over interface 0
+  the connect went through and the main mix faders moved the sound. Over
+  the DFU interface (3) the first write, the monitor volume, timed out, the
+  matrix writes after it failed and the box needed replugging. `0x21` with
+  request `0x01` is also what a DFU download looks like, which may be why;
+  that is a guess, the hang is not.
+- **Phase invert answers on channels 1 to 4 only.** `0x0d05` to `0x0d0c` on
+  entity `0x0b` stalled with `LIBUSB_ERROR_PIPE`, although the feature unit
+  declares the control on all ten channels.
+- The cue bus is written but cannot be heard yet: nothing is routed to it.
+
 ### The iD14's own codes, which BiD had all along
 
 MixiD's original routing table was never wrong - it was written for a
@@ -331,8 +414,8 @@ steered the output pairs through Main, Cue A and Cue B in three
 configurations and audio followed the matrix every time - a cue's master
 fader gated exactly the outputs fed from that cue, and swapping the
 assignments swapped the result. BiD therefore pushes routing on connect
-for the MKII. The first-generation iD14 speaks the same table but keeps
-the cautious flags until an owner of one reports.
+for the MKII. The first-generation iD14 does not share it: its routing unit
+has four outputs, not six (see above), and its codes are unmapped.
 
 ## A rate change is no time to talk
 

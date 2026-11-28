@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15...4.0)
 project(
   BiD
-  VERSION 0.3.1
+  VERSION 0.3.2
   LANGUAGES C CXX)
 
 add_definitions(-DVERSION_BID="${BiD_VERSION}") 
@@ -113,6 +113,17 @@ if (SDBUS_FOUND)
 	target_link_libraries(BiD PRIVATE ${SDBUS_LIBRARIES})
 else()
 	message(STATUS "libsystemd/basu not found, building without tray support")
+endif()
+
+# ---- tests: what BiD puts on the wire, against a recording stand-in for
+# libusb. No interface, display or GPU involved: `ctest` in the build directory.
+option(BUILD_TESTING "Build the wire test" ON)
+if (BUILD_TESTING)
+	enable_testing()
+	add_executable(wire_test tests/wire_test.cpp)
+	# ahead of the real libusb, so driver.h is compiled against the stand-in
+	target_include_directories(wire_test BEFORE PRIVATE tests/fake)
+	add_test(NAME wire COMMAND wire_test)
 endif()
 
 # Desktop entry and icon, so BiD shows up in application menus

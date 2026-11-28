@@ -135,6 +135,15 @@ when the need arises, with exact steps.
   relative to Main. A per-ear check (step 3) plus one beep hunt would
   settle it. Bonus for this model: cue-fed outputs bypass the volume
   knob by design, so the turned-down-knob trap cannot bite here.
+- **iD14 (first generation)** — a different machine from the MKII: one
+  cue, a mixer four cells wide, four routed outputs (its descriptors are
+  in [PROTOCOL.md](PROTOCOL.md)). Its owner confirmed the connect and
+  the main mix faders. BiD takes interface 0 on this model, so audio from
+  the computer pauses while it is connected - unless Monix's `audient_id`
+  module is loaded, in which case BiD goes through its relay and audio
+  keeps playing (confirmed by its owner). Its routing codes
+  are unmapped, so BiD writes no routing there and the cue cannot be
+  heard yet. Step 4 would settle where its headphone level lives.
 - **iD4 / iD4 MKII** — fixed 2-in/2-out, no mixer or routing to map.
 - **iD22 / iD44 / iD48** — unverified; owners wanted. The iD48 shares
   the iD24's code formula, so its predictions are already written —

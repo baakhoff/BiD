@@ -3,11 +3,24 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <string>
+#ifdef __linux__
+#include <sys/ioctl.h>
+#endif
 #include "device_properties.h"
 
 static libusb_device_handle *devh = NULL;
 static bool driver_connected = false;
 static int control_iface = 0;
+// From the model's profile: whether the spare interface may be used at all,
+// and how many inputs take a phase switch (device_properties.h).
+inline bool control_on_spare = true;
+inline int phase_inputs = 16;
 
 // Set when a transfer reports the device gone: the handle went stale over a
 // suspend, or the cable came out. The app watches this and turns it into a
@@ -20,12 +33,126 @@ static bool driver_lost = false;
 // iD14 MKII's spare interface) must not hang the app forever.
 static int transfer_errors = 0;
 
-static void note_transfer_error(int err)
+static void note_transfer_error(int err, uint16_t wValue, uint16_t wIndex)
 {
-  printf("libusb_control_transfer failed: %s\n", libusb_error_name(err));
+  // The request is named, entity in the high byte of wIndex: a pasted log
+  // then says which write the device turned down, not only that one failed.
+  printf("libusb_control_transfer failed: %s (set wValue 0x%04x wIndex 0x%04x)\n",
+         libusb_error_name(err), wValue, wIndex);
   transfer_errors++;
   if (err == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
+}
+
+// A second way in, for models that take control on interface 0 only. From
+// userspace that interface cannot be used while the kernel's sound driver
+// holds it, so the choice there is between the mixer and the sound card.
+// Monix (github.com/sKuhLight/monix) ships a small kernel module,
+// audient_id, that forwards class requests from inside the kernel, where no
+// such rule applies, and offers them as /dev/audient_idN. Where that module
+// is loaded BiD sends its requests through it and audio keeps playing.
+// The layout below is that module's, one message per transfer.
+struct relay_msg {
+  uint8_t bRequestType;
+  uint8_t bRequest;
+  uint16_t wValue;
+  uint16_t wIndex;
+  uint16_t wLength;
+  uint8_t data[64];
+} __attribute__((packed));
+static int relay_fd = -1;
+
+static int relay_error()
+{
+  switch (errno) {
+    case ENODEV: return LIBUSB_ERROR_NO_DEVICE;
+    case EPIPE: return LIBUSB_ERROR_PIPE;
+    case ETIMEDOUT: return LIBUSB_ERROR_TIMEOUT;
+  }
+  return LIBUSB_ERROR_IO;
+}
+
+// Every transfer, read or write, goes through here, over whichever way in
+// the connect chose. Answers like libusb: bytes moved, or a negative error.
+static int usb_xfer(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
+                    unsigned char *data, uint16_t len, unsigned int timeout_ms)
+{
+  if (relay_fd < 0)
+    return libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, data, len, timeout_ms);
+  struct relay_msg m;
+  if (len > sizeof(m.data))
+    return LIBUSB_ERROR_IO;
+  memset(&m, 0, sizeof(m));
+  m.bRequestType = bmRequestType;
+  m.bRequest = bRequest;
+  m.wValue = wValue;
+  m.wIndex = wIndex;
+  m.wLength = len;
+  if (bmRequestType & 0x80) {
+#ifdef __linux__
+    // _IOWR(0xA1, 1, struct relay_msg), the module's one ioctl
+    if (ioctl(relay_fd, _IOWR(0xA1, 1, struct relay_msg), &m) < 0)
+      return relay_error();
+    memcpy(data, m.data, len);
+    return len;
+#else
+    return LIBUSB_ERROR_IO;
+#endif
+  }
+  memcpy(m.data, data, len);
+  size_t n = offsetof(struct relay_msg, data) + len;
+  if (write(relay_fd, &m, n) != (ssize_t)n)
+    return relay_error();
+  return len;
+}
+
+// Finds the relay's device node, if the module is loaded and the node can be
+// opened. The module does not say which box a node belongs to, so with more
+// than one node present BiD does not guess. BID_RELAY_DEV names one outright.
+static int relay_open(std::string *path_out)
+{
+  const char *named = getenv("BID_RELAY_DEV");
+  std::string only;
+  int nodes = 0;
+  if (named && *named) {
+    only = named;
+    nodes = 1;
+  } else {
+    for (int i = 0; i < 8; i++) {
+      std::string p = "/dev/audient_id" + std::to_string(i);
+      if (access(p.c_str(), F_OK) == 0) {
+        only = p;
+        nodes++;
+      }
+    }
+  }
+  if (nodes == 0)
+    return -1;
+  if (nodes > 1) {
+    printf("more than one audient_id relay node: not guessing which is this device (BID_RELAY_DEV names one)\n");
+    return -1;
+  }
+  int fd = open(only.c_str(), O_RDWR | O_CLOEXEC);
+  if (fd < 0) {
+    int err = errno;
+    printf("Monix's relay %s cannot be opened: %s\n", only.c_str(), strerror(err));
+    if (err == EACCES)
+      printf("re-run the BiD installer: its udev rule opens the relay to the logged-in user\n");
+    return -1;
+  }
+  *path_out = only;
+  return fd;
+}
+
+// Every write to the device goes through here. entity is the unit id shifted
+// into the high byte, as the rest of this file spells it (0x3c00, 0x3600...).
+static int ctl_set(uint16_t wValue, uint16_t entity, const void *data, uint16_t len)
+{
+  uint16_t wIndex = entity | control_iface;
+  int err = usb_xfer(0x21, 0x1, wValue, wIndex, (uint8_t*)data, len, 250);
+  if (err < 0)
+    note_transfer_error(err, wValue, wIndex);
+  return err;
 }
 
 int device_probe()
@@ -168,38 +295,26 @@ uint16_t float_to_u16(float volume) {
 void set_vinyl_dm(float volume) {
   uint16_t one = float_to_u16(volume);
   uint16_t zero = float_to_u16(0);
-  int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100, 0x3c00 | control_iface, (uint8_t*)&one, 2, 250);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0101, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 250);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0104, 0x3c00 | control_iface, (uint8_t*)&zero, 2, 250);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0105, 0x3c00 | control_iface, (uint8_t*)&one, 2, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x0100, 0x3c00, &one, 2);
+  ctl_set(0x0101, 0x3c00, &zero, 2);
+  ctl_set(0x0104, 0x3c00, &zero, 2);
+  ctl_set(0x0105, 0x3c00, &one, 2);
 }
 
 void set_hp_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
-  int err = 0;
   // Feature unit 0x0c carries four output channels: 1 and 2 are the monitor
   // pair, 3 and 4 the headphones. Entity 0x0a, which this used to address,
   // declares no controls at all, so those writes went nowhere.
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0203, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 250);
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x0204, 0x0c00 | control_iface, (uint8_t*)&vol, 2, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x0203, 0x0c00, &vol, 2);
+  ctl_set(0x0204, 0x0c00, &vol, 2);
 }
 
 void set_speaker_volume(float volume) {
   assert(volume>=0 && volume<=1);
   uint16_t vol = float_to_u16(volume);
-  int err = 0;
-  err = libusb_control_transfer(devh, 0x21, 0x1, 0x1200, 0x3600 | control_iface, (uint8_t*)&vol, 2, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x1200, 0x3600, &vol, 2);
 }
 
 // The matrix (entity 0x3c) is 96 cells: 16 inputs by 6 sends, addressed as a
@@ -212,10 +327,12 @@ enum mixer_send {
 };
 #define MIXER_SENDS 6
 
-// How many cells one matrix row spans: two per stereo bus, so six on a
-// device with a main mix and two cues. The iD14 family has one cue, so
-// four - writing with the wrong spacing lands on a neighbour's row, which
-// is how an iD14 MKII got its DAW returns silenced (issue #26).
+// How many cells one matrix row spans: the mixer unit's output channel
+// count, two per stereo bus. Six on the iD24 and the iD14 MKII, which carry
+// a main mix and two cues; four on the first-generation iD14, which has one
+// cue. The wrong spacing lands on a neighbour's row or past the end of the
+// matrix - an iD14 MKII lost its DAW returns to four (issue #26), and a
+// first-generation iD14 answered six with IO errors (issue #28).
 inline int mixer_stride = MIXER_SENDS;
 // Outputs the routing unit actually has; writing past it earns an IO error
 // from the firmware, which is how the iD14's six outputs announced
@@ -225,12 +342,13 @@ inline int routing_outputs = 16;
 void set_mixer_cell(int input, int send, float gain)
 {
   assert(gain>=0 && gain<=1);
+  // A send this model's matrix does not have is the next row's first cell,
+  // not a quiet no-op: cue B on a four-wide matrix would be written over
+  // the following input's main sends. Never let one out.
+  if (input < 0 || send < 0 || send >= mixer_stride)
+    return;
   uint16_t v = float_to_u16(gain);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0100 + input * mixer_stride + send,
-                                    0x3c00 | control_iface, (uint8_t*)&v, 2, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x0100 + input * mixer_stride + send, 0x3c00, &v, 2);
 }
 
 // The three stereo buses a channel can be sent to, in matrix order.
@@ -260,16 +378,23 @@ void set_channel_send(uint16_t chan, int mix, float volume, float pan)
 // Which table this device speaks; set from its profile before any write.
 inline int route_scheme = ROUTE_SCHEME_ID24;
 
+// Teach the driver one model's shape before anything is written to it.
+inline void use_device_geometry(const device_properties &d)
+{
+  phase_inputs = d.phase_inputs;
+  control_on_spare = d.control_on_spare;
+  mixer_stride = d.mixer_stride;
+  routing_outputs = d.routing_outputs;
+  route_scheme = d.route_scheme;
+}
+
 void set_route(int out, int source)
 {
   if (out < 0 || out >= routing_outputs || route_scheme == ROUTE_SCHEME_NONE)
     return;
   uint8_t code = route_scheme == ROUTE_SCHEME_ID14 ? route_code_id14(out, source)
                                                    : route_code(out, source);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0600 + out, 0x3300 | control_iface, &code, 1, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x0600 + out, 0x3300, &code, 1);
 }
 
 // Both halves of a stereo pair listen to the same source; pair 0 is outputs
@@ -294,13 +419,8 @@ inline bool masterToggle[6] = {false,false,false,false,false,false}; // Dummy st
 
 void set_bool_state(int mode) 
 {
-  int err = 0;
   masterToggle[mode] = !masterToggle[mode];
-  err = libusb_control_transfer(devh, 0x21, 0x1, masterVals[mode], 0x3600 | control_iface, (uint8_t*)&masterToggle[mode], 1, 250);
-
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(masterVals[mode], 0x3600, &masterToggle[mode], 1);
   //return masterToggle[mode];
 }
 
@@ -312,7 +432,7 @@ void set_bool_state(int mode)
 int get_bool_state(int mode, bool *out)
 {
   unsigned char b = 0;
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 100);
+  int r = usb_xfer(0xa1, 0x1, masterVals[mode], 0x3600 | control_iface, &b, 1, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 1)
@@ -324,7 +444,7 @@ int get_bool_state(int mode, bool *out)
 int get_monitor_volume(float *out)
 {
   unsigned char b[2] = {0, 0};
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 100);
+  int r = usb_xfer(0xa1, 0x1, 0x1200, 0x3600 | control_iface, b, 2, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 2)
@@ -341,7 +461,7 @@ int get_monitor_volume(float *out)
 int get_hp_volume(float *out)
 {
   unsigned char b[2] = {0, 0};
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x0203, 0x0c00 | control_iface, b, 2, 100);
+  int r = usb_xfer(0xa1, 0x1, 0x0203, 0x0c00 | control_iface, b, 2, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 2)
@@ -358,7 +478,7 @@ int get_hp_volume(float *out)
 int get_monitor_byte(uint16_t wv, unsigned char *out)
 {
   unsigned char b = 0;
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, 0x3600 | control_iface, &b, 1, 100);
+  int r = usb_xfer(0xa1, 0x1, wv, 0x3600 | control_iface, &b, 1, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 1)
@@ -369,16 +489,13 @@ int get_monitor_byte(uint16_t wv, unsigned char *out)
 
 void set_monitor_byte(uint16_t wv, unsigned char v)
 {
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, &v, 1, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(wv, 0x3600, &v, 1);
 }
 
 int get_monitor_level(uint16_t wv, float *out)
 {
   unsigned char b[2] = {0, 0};
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, 0x3600 | control_iface, b, 2, 100);
+  int r = usb_xfer(0xa1, 0x1, wv, 0x3600 | control_iface, b, 2, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 2)
@@ -391,10 +508,7 @@ int get_monitor_level(uint16_t wv, float *out)
 void set_monitor_level(uint16_t wv, float volume)
 {
   uint16_t vol = float_to_u16(volume);
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, 0x3600 | control_iface, (uint8_t*)&vol, 2, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(wv, 0x3600, &vol, 2);
 }
 
 // Meters are a different request family: GET_MEM, bRequest 0x03, on the
@@ -406,7 +520,7 @@ void set_monitor_level(uint16_t wv, float volume)
 int get_meters(uint8_t *out, int n)
 {
   unsigned char buf[32];
-  int r = libusb_control_transfer(devh, 0xa1, 0x3, 0x0000, 0x3c00 | control_iface, buf, sizeof(buf), 50);
+  int r = usb_xfer(0xa1, 0x3, 0x0000, 0x3c00 | control_iface, buf, sizeof(buf), 50);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != (int)sizeof(buf))
@@ -423,7 +537,7 @@ int get_meters(uint8_t *out, int n)
 int get_device_rate(int *hz)
 {
   unsigned char b[4] = {0};
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, 0x0600, 0x3e00 | control_iface, b, 4, 100);
+  int r = usb_xfer(0xa1, 0x1, 0x0600, 0x3e00 | control_iface, b, 4, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 4)
@@ -442,7 +556,7 @@ int get_optical_mode(int which, int *mode)
   unsigned char b[4] = {0};
   uint16_t wv = which ? 0x0100 : 0x0000;
   uint16_t wi = (which ? 0x1400 : 0x0100) | control_iface;
-  int r = libusb_control_transfer(devh, 0xa1, 0x1, wv, wi, b, 4, 100);
+  int r = usb_xfer(0xa1, 0x1, wv, wi, b, 4, 100);
   if (r == LIBUSB_ERROR_NO_DEVICE)
     driver_lost = true;
   if (r != 4)
@@ -455,30 +569,22 @@ void set_optical_mode(int which, int mode)
 {
   uint32_t v = (uint32_t)mode;
   uint16_t wv = which ? 0x0100 : 0x0000;
-  uint16_t wi = (which ? 0x1400 : 0x0100) | control_iface;
-  int err = libusb_control_transfer(devh, 0x21, 0x1, wv, wi, (uint8_t*)&v, 4, 250);
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(wv, which ? 0x1400 : 0x0100, &v, 4);
 }
 
 inline bool phaseToggle[16] = {};
 
 void set_phase(int chan, bool on) //0 indexed
 {
-  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+  if (chan < 0 || chan >= phase_inputs || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
     return;
   phaseToggle[chan] = on;
-  int err = libusb_control_transfer(devh, 0x21, 0x1, 0x0d01+chan, 0x0b00 | control_iface, (uint8_t*)&phaseToggle[chan], 1, 250);
-
-  if (err < 0) {
-    note_transfer_error(err);
-  }
+  ctl_set(0x0d01+chan, 0x0b00, &phaseToggle[chan], 1);
 }
 
 void set_phase_state(int chan) //0 indexed
 {
-  if (chan < 0 || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
+  if (chan < 0 || chan >= phase_inputs || chan >= (int)(sizeof(phaseToggle)/sizeof(phaseToggle[0])))
     return;
   set_phase(chan, !phaseToggle[chan]);
 }
@@ -496,6 +602,9 @@ int driver_init(uint16_t deviceid)
   //if (!devh)
 //	devh = libusb_open_device_with_vid_pid(NULL, 0x2708, 0x0008); //MKII
   if (!devh) {
+    // said out loud: a box that has hung and dropped off the bus used to
+    // fail here without a word in the log
+    printf("could not open 2708:%04x: not on the bus, or no permission\n", deviceid);
     driver_connected = false;
     libusb_exit(NULL);
     return false;
@@ -507,6 +616,10 @@ int driver_init(uint16_t deviceid)
   // keeps running while BiD is connected. Devices without a spare
   // interface fall back to the old exclusive grab of interface 0.
   control_iface = find_control_interface(libusb_get_device(devh));
+  // Not on a model known to take it badly: a first-generation iD14 hung
+  // until replugged when its DFU interface was sent these (issue #28).
+  if (!control_on_spare)
+    control_iface = 0;
   // The spare-interface trick is verified on the iD24; other models may
   // expose the interface yet refuse control traffic on it (every transfer
   // answers LIBUSB_ERROR_IO). BID_CONTROL_IFACE forces the choice - 0 is
@@ -516,6 +629,21 @@ int driver_init(uint16_t deviceid)
     control_iface = atoi(forced);
   if (control_iface < 0)
     control_iface = 0;
+  // Interface 0 means taking the sound card away. Before doing that, see
+  // whether Monix's relay is loaded: through it the same requests reach
+  // interface 0 with the sound driver still in place. An explicit
+  // BID_CONTROL_IFACE is a request for libusb and is honoured as such.
+  if (control_iface == 0 && !(forced && *forced)) {
+    std::string path;
+    relay_fd = relay_open(&path);
+    if (relay_fd >= 0) {
+      printf("control through Monix's audient_id relay (%s): audio keeps playing\n", path.c_str());
+      libusb_close(devh);
+      devh = NULL;
+      driver_connected = true;
+      return driver_connected;
+    }
+  }
   if (control_iface == 0) {
     printf("using interface 0 exclusively (audio pauses while connected)\n");
     err = libusb_set_auto_detach_kernel_driver(devh, 1);
@@ -529,6 +657,16 @@ int driver_init(uint16_t deviceid)
     }
   } else {
     printf("control over spare interface %d\n", control_iface);
+    // Nothing in the kernel wants the DFU interface, but another project's
+    // module may: Monix's audient_id relay binds exactly this one, and the
+    // claim below then fails as busy - which used to surface as a talk
+    // about udev permissions (issue #28). Ask it to step aside for as long
+    // as BiD is connected; libusb hands the interface back on release. The
+    // sound card is on other interfaces and never notices.
+    if (libusb_kernel_driver_active(devh, control_iface) == 1) {
+      printf("interface %d is held by a kernel driver (Monix's audient_id relay does this); borrowing it while connected\n", control_iface);
+      libusb_set_auto_detach_kernel_driver(devh, 1);
+    }
   }
   err = libusb_claim_interface(devh, control_iface);
   if (err < 0) {
@@ -546,6 +684,13 @@ int driver_init(uint16_t deviceid)
 void driver_shutdown()
 {
   driver_connected = false;
+  if (relay_fd >= 0) {
+    // nothing was claimed and nothing detached: closing the node is all
+    close(relay_fd);
+    relay_fd = -1;
+    libusb_exit(NULL);
+    return;
+  }
   if (!devh)
     return;
   if (control_iface == 0) {
