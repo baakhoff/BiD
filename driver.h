@@ -134,7 +134,10 @@ static int relay_open(std::string *path_out)
   }
   int fd = open(only.c_str(), O_RDWR | O_CLOEXEC);
   if (fd < 0) {
-    printf("Monix's relay %s cannot be opened: %s\n", only.c_str(), strerror(errno));
+    int err = errno;
+    printf("Monix's relay %s cannot be opened: %s\n", only.c_str(), strerror(err));
+    if (err == EACCES)
+      printf("re-run the BiD installer: its udev rule opens the relay to the logged-in user\n");
     return -1;
   }
   *path_out = only;
